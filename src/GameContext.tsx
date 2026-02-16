@@ -87,15 +87,45 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const connectToRoom = useCallback(async (
     params: { roomCode: string; playerName: string; serverUrl: string; create: boolean }
   ) => {
-    const { roomCode, playerName, serverUrl, create } = params;
+    const roomCode = params.roomCode.trim().toUpperCase();
+    const playerName = params.playerName.trim();
+    const serverUrl = params.serverUrl.trim();
+    const create = params.create;
+
+    if (!roomCode) {
+      return { ok: false, error: 'Room code is required.' };
+    }
+    if (!playerName) {
+      return { ok: false, error: 'Player name is required.' };
+    }
+    if (!serverUrl) {
+      return { ok: false, error: 'Server URL is required.' };
+    }
+
     try {
+      networkClient.offAll();
+      networkClient.disconnect();
       networkClient.connect(serverUrl);
 
       const response = await new Promise<{ ok: boolean; error?: string; snapshot?: any }>(resolve => {
+        let resolved = false;
+        const timeout = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          resolve({ ok: false, error: 'Connection timed out. Check server URL and try again.' });
+        }, 12000);
+
+        const finalize = (result: { ok: boolean; error?: string; snapshot?: any }) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(result);
+        };
+
         if (create) {
-          networkClient.createRoom(roomCode, playerName, resolve);
+          networkClient.createRoom(roomCode, playerName, finalize);
         } else {
-          networkClient.joinRoom(roomCode, playerName, resolve);
+          networkClient.joinRoom(roomCode, playerName, finalize);
         }
       });
 
@@ -187,10 +217,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     saveUndoSnapshot(game, history);
     const player = game.players[game.currentPlayerIndex];
     const newGame = performAction(game, action, amount);
+    const playerAfterAction = newGame.players.find(p => p.id === player.id);
 
     let msg = `[${game.round}] ${player.name}: ${action}`;
     if (typeof amount === 'number' && (action === 'bet' || action === 'raise')) {
-      msg += ` to ${Math.max(0, Math.floor(amount))}`;
+      const effectiveBet = playerAfterAction?.currentBet ?? amount;
+      msg += ` to ${Math.max(0, Math.floor(effectiveBet))}`;
     }
     if (action === 'all-in') {
       msg += ` (${player.chips + player.currentBet})`;
@@ -265,30 +297,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, [pastStates, pushOnlineState, settings]);
 
   const toggleTimerPaused = useCallback((paused?: boolean) => {
+    if (settings.decisionTimerSeconds <= 0) return;
     const nextPaused = typeof paused === 'boolean' ? paused : !timerPaused;
     setTimerPaused(nextPaused);
     setRoom(prev => prev ? { ...prev, timerPaused: nextPaused } : prev);
     if (mode === 'online' && room) {
       networkClient.setTimerPaused(room.roomCode, nextPaused);
     }
-  }, [mode, room, timerPaused]);
+  }, [mode, room, settings.decisionTimerSeconds, timerPaused]);
 
   const sendChatMessage = useCallback((text: string) => {
     const messageText = text.trim();
     if (!messageText) return;
 
-    if (mode === 'online' && room) {
-      networkClient.sendChat(room.roomCode, room.playerName, messageText);
-      return;
-    }
-
-    const localMessage: ChatMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      sender: 'Table',
-      text: messageText,
-      createdAt: Date.now(),
-    };
-    setChatMessages(prev => [localMessage, ...prev].slice(0, 100));
+    if (mode !== 'online' || !room) return;
+    networkClient.sendChat(room.roomCode, room.playerName, messageText);
   }, [mode, room]);
 
   const resetGame = useCallback(() => {

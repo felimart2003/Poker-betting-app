@@ -25,16 +25,31 @@ type ChatUpdate = {
 
 class NetworkClient {
   private socket: Socket | null = null;
+  private currentServerUrl: string | null = null;
 
   connect(serverUrl: string) {
-    if (this.socket?.connected) return this.socket;
-    this.socket = io(serverUrl, { transports: ['websocket'] });
+    const normalizedUrl = serverUrl.trim();
+    if (this.socket && this.currentServerUrl !== normalizedUrl) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
+    if (this.socket) return this.socket;
+
+    this.currentServerUrl = normalizedUrl;
+    this.socket = io(normalizedUrl, {
+      transports: ['websocket', 'polling'],
+      timeout: 10000,
+      reconnection: true,
+      reconnectionAttempts: 5,
+    });
     return this.socket;
   }
 
   disconnect() {
     this.socket?.disconnect();
     this.socket = null;
+    this.currentServerUrl = null;
   }
 
   createRoom(

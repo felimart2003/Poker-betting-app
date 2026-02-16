@@ -85,6 +85,7 @@ export default function GameScreen() {
   const isShowdown = !!game && game.round === 'showdown' && game.isHandActive;
   const isHandDone = !!game && !game.isHandActive;
   const currentPlayer = game ? game.players[game.currentPlayerIndex] : null;
+  const hasDecisionTimer = settings.decisionTimerSeconds > 0;
   const shouldRunTimer = !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown && !timerPaused;
 
   useEffect(() => {
@@ -240,7 +241,7 @@ export default function GameScreen() {
 
         {game.isHandActive && <PotDisplay game={game} />}
 
-        {timerPaused && (
+        {hasDecisionTimer && timerPaused && (
           <View style={styles.pausedBanner}>
             <Text style={styles.pausedText}>⏸ Timer paused by admin</Text>
           </View>
@@ -324,34 +325,36 @@ export default function GameScreen() {
 
         <HandHistory history={history} />
 
-        <View style={styles.chatContainer}>
-          <Text style={styles.chatTitle}>Table Chat</Text>
-          <View style={styles.chatList}>
-            {chatMessages.length === 0 ? (
-              <Text style={styles.chatEmpty}>No messages yet.</Text>
-            ) : (
-              chatMessages.slice(0, 20).map(message => (
-                <View key={message.id} style={styles.chatItem}>
-                  <Text style={styles.chatSender}>{message.sender}</Text>
-                  <Text style={styles.chatText}>{message.text}</Text>
-                </View>
-              ))
-            )}
+        {mode === 'online' && (
+          <View style={styles.chatContainer}>
+            <Text style={styles.chatTitle}>Table Chat</Text>
+            <View style={styles.chatList}>
+              {chatMessages.length === 0 ? (
+                <Text style={styles.chatEmpty}>No messages yet.</Text>
+              ) : (
+                chatMessages.slice(0, 20).map(message => (
+                  <View key={message.id} style={styles.chatItem}>
+                    <Text style={styles.chatSender}>{message.sender}</Text>
+                    <Text style={styles.chatText}>{message.text}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+            <View style={styles.chatInputRow}>
+              <TextInput
+                style={styles.chatInput}
+                placeholder="Type a message"
+                placeholderTextColor={COLORS.textMuted}
+                value={chatInput}
+                onChangeText={setChatInput}
+                onSubmitEditing={submitChat}
+              />
+              <TouchableOpacity style={styles.chatSendBtn} onPress={submitChat}>
+                <Text style={styles.chatSendText}>Send</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.chatInputRow}>
-            <TextInput
-              style={styles.chatInput}
-              placeholder="Type a message"
-              placeholderTextColor={COLORS.textMuted}
-              value={chatInput}
-              onChangeText={setChatInput}
-              onSubmitEditing={submitChat}
-            />
-            <TouchableOpacity style={styles.chatSendBtn} onPress={submitChat}>
-              <Text style={styles.chatSendText}>Send</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        )}
 
         <View style={{ height: 130 }} />
       </ScrollView>
@@ -366,15 +369,14 @@ export default function GameScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
           <View style={styles.menuPanel}>
             <Text style={styles.menuTitle}>Game Menu</Text>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowHands(true); }}>
-              <Text style={styles.menuItemText}>View Hand Rankings</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowAdmin(true); }}>
               <Text style={styles.menuItemText}>Admin Tools</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); toggleTimerPaused(); }}>
-              <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
-            </TouchableOpacity>
+            {hasDecisionTimer && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); toggleTimerPaused(); }}>
+                <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={[styles.menuItem, !canUndo && styles.menuItemDisabled]} disabled={!canUndo} onPress={() => { setShowMenu(false); undoLastAction(); }}>
               <Text style={styles.menuItemText}>Undo Last Action</Text>
             </TouchableOpacity>
@@ -460,9 +462,11 @@ export default function GameScreen() {
               </>
             )}
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => toggleTimerPaused()}>
-              <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
-            </TouchableOpacity>
+            {hasDecisionTimer && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => toggleTimerPaused()}>
+                <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={[styles.menuItem, styles.menuDanger]} onPress={() => setShowAdmin(false)}>
               <Text style={[styles.menuItemText, styles.menuDangerText]}>Close Admin</Text>

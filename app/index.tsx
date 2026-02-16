@@ -20,14 +20,18 @@ export default function HomeScreen() {
   const [roomCode, setRoomCode] = useState('POKER1');
   const [playerName, setPlayerName] = useState('Player');
   const [serverUrl, setServerUrl] = useState('http://192.168.0.11:4000');
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const handleOnline = async (create: boolean) => {
+    if (isConnecting) return;
+    setIsConnecting(true);
     const res = await connectToRoom({
       roomCode,
       playerName,
       serverUrl,
       create,
     });
+    setIsConnecting(false);
     if (!res.ok) {
       Alert.alert('Connection failed', res.error || 'Could not connect to room.');
       return;
@@ -52,24 +56,13 @@ export default function HomeScreen() {
           <FeatureItem icon="👥" text="2-8 players" />
           <FeatureItem icon="🪙" text="Track chips & bets" />
           <FeatureItem icon="🔄" text="Auto blinds & dealer" />
-          <FeatureItem icon="📱" text="Pass & play" />
+          <FeatureItem icon="🌐" text="Online multiplayer" />
         </View>
 
         {/* Actions */}
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.primaryBtn}
-            onPress={() => {
-              disconnectRoom();
-              setMode('local');
-              router.push('/setup');
-            }}
-          >
-            <Text style={styles.primaryBtnText}>Offline Pass & Play</Text>
-          </TouchableOpacity>
-
           <View style={styles.onlineCard}>
-            <Text style={styles.onlineTitle}>Online Room (server-hosted)</Text>
+            <Text style={styles.onlineTitle}>Online Multiplayer (Main Mode)</Text>
             <TextInput
               style={styles.input}
               value={serverUrl}
@@ -94,14 +87,25 @@ export default function HomeScreen() {
               placeholderTextColor={COLORS.textMuted}
             />
             <View style={styles.onlineButtons}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => handleOnline(true)}>
-                <Text style={styles.secondaryBtnText}>Create Room</Text>
+              <TouchableOpacity style={[styles.primaryBtn, isConnecting && styles.disabledBtn]} disabled={isConnecting} onPress={() => handleOnline(true)}>
+                <Text style={styles.primaryBtnText}>{isConnecting ? 'Connecting...' : 'Create Room'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => handleOnline(false)}>
+              <TouchableOpacity style={[styles.secondaryBtn, isConnecting && styles.disabledBtn]} disabled={isConnecting} onPress={() => handleOnline(false)}>
                 <Text style={styles.secondaryBtnText}>Join Room</Text>
               </TouchableOpacity>
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.offlineBtn}
+            onPress={() => {
+              disconnectRoom();
+              setMode('local');
+              router.push('/setup');
+            }}
+          >
+            <Text style={styles.offlineBtnText}>Offline Pass & Play (optional)</Text>
+          </TouchableOpacity>
 
           <View style={styles.rulesCard}>
             <Text style={styles.rulesTitle}>Quick Poker Rules</Text>
@@ -225,6 +229,18 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontWeight: '700',
   },
+  offlineBtn: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceHighlight,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+  },
+  offlineBtnText: {
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
   rulesCard: {
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.lg,
@@ -270,6 +286,9 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xl,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  disabledBtn: {
+    opacity: 0.6,
   },
   version: {
     textAlign: 'center',
