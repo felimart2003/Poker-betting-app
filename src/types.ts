@@ -53,12 +53,20 @@ export interface GameSettings {
 
 export type GameMode = 'local' | 'online';
 
+export interface ChatMessage {
+  id: string;
+  sender: string;
+  text: string;
+  createdAt: number;
+}
+
 export interface RoomState {
   roomCode: string;
   playerName: string;
   serverUrl: string;
   mode: GameMode;
   connectedUsers: Array<{ socketId: string; playerName: string }>;
+  timerPaused: boolean;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {

@@ -1,37 +1,50 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
   Alert,
-  Modal,
-  TextInput,
   Dimensions,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
 import { useGame } from '../src/GameContext';
-import { PlayerCard } from '../src/components/PlayerCard';
 import { BettingControls } from '../src/components/BettingControls';
-import { PotDisplay } from '../src/components/PotDisplay';
 import { HandHistory } from '../src/components/HandHistory';
-import { isGameOver, getWinner, formatChips, getCallAmount } from '../src/gameState';
+import { PlayerCard } from '../src/components/PlayerCard';
+import { PotDisplay } from '../src/components/PotDisplay';
+import { formatChips, getCallAmount, getWinner, isGameOver } from '../src/gameState';
 
-const HAND_RANKINGS = [
-  'Royal Flush',
-  'Straight Flush',
-  'Four of a Kind',
-  'Full House',
-  'Flush',
-  'Straight',
-  'Three of a Kind',
-  'Two Pair',
-  'One Pair',
-  'High Card',
+type HandInfo = {
+  title: string;
+  description: string;
+  example: string;
+};
+
+const HAND_RANKINGS: HandInfo[] = [
+  { title: 'Royal Flush', description: 'A, K, Q, J, 10 all same suit.', example: 'A♦ K♦ Q♦ J♦ 10♦' },
+  { title: 'Straight Flush', description: 'Five consecutive cards, same suit.', example: '9♠ 8♠ 7♠ 6♠ 5♠' },
+  { title: 'Four of a Kind', description: 'Four cards of same rank.', example: 'K♣ K♦ K♥ K♠ 4♦' },
+  { title: 'Full House', description: 'Three of one rank + two of another.', example: 'Q♣ Q♦ Q♠ 9♥ 9♣' },
+  { title: 'Flush', description: 'Five cards same suit, not consecutive.', example: '10♦ K♦ 2♦ 5♦ J♦' },
+  { title: 'Straight', description: 'Five consecutive cards, mixed suits.', example: '8♣ 7♦ 6♠ 5♥ 4♣' },
+  { title: 'Three of a Kind', description: 'Three cards of same rank.', example: 'A♣ A♦ A♠ 7♥ 2♣' },
+  { title: 'Two Pair', description: 'Two pairs of different ranks.', example: 'J♣ J♥ 4♦ 4♠ 9♣' },
+  { title: 'One Pair', description: 'One pair plus three kickers.', example: '10♣ 10♥ K♦ 7♠ 3♣' },
+  { title: 'High Card', description: 'No made hand; highest card wins.', example: 'A♣ J♦ 8♠ 5♥ 2♣' },
 ];
+
+function initials(name: string) {
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 0) return 'P';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
 
 export default function GameScreen() {
   const router = useRouter();
@@ -41,15 +54,19 @@ export default function GameScreen() {
     mode,
     room,
     canUndo,
+    history,
+    chatMessages,
+    timerPaused,
     dealNewHand,
     doAction,
     awardToWinners,
     nextDealer,
     resetGame,
-    history,
     undoLastAction,
     addPlayerMidgame,
     updatePlayerChips,
+    sendChatMessage,
+    toggleTimerPaused,
   } = useGame();
 
   const [selectedWinners, setSelectedWinners] = useState<string[]>([]);
@@ -61,19 +78,21 @@ export default function GameScreen() {
   const [editPlayerId, setEditPlayerId] = useState<string>('');
   const [editChips, setEditChips] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
+  const [chatInput, setChatInput] = useState('');
 
   const gameOver = game ? isGameOver(game) : false;
   const winner = game ? getWinner(game) : null;
   const isShowdown = !!game && game.round === 'showdown' && game.isHandActive;
   const isHandDone = !!game && !game.isHandActive;
   const currentPlayer = game ? game.players[game.currentPlayerIndex] : null;
-  const shouldRunTimer = !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown;
+  const shouldRunTimer = !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown && !timerPaused;
 
   useEffect(() => {
     if (!game || !shouldRunTimer) {
-      setTimeLeft(0);
+      setTimeLeft(timerPaused ? Math.max(0, settings.decisionTimerSeconds) : 0);
       return;
     }
+
     setTimeLeft(settings.decisionTimerSeconds);
     const id = setInterval(() => {
       setTimeLeft(prev => {
@@ -85,35 +104,36 @@ export default function GameScreen() {
         return prev - 1;
       });
     }, 1000);
+
     return () => clearInterval(id);
   }, [
     game?.currentPlayerIndex,
     game?.round,
     game?.roundNumber,
     game?.isHandActive,
-    shouldRunTimer,
     settings.decisionTimerSeconds,
+    shouldRunTimer,
+    timerPaused,
     doAction,
   ]);
 
   const tableSeatWidth = Dimensions.get('window').width - SPACING.md * 2;
-  const tableSeatHeight = 300;
-  const playerCount = game?.players.length ?? 0;
+  const tableSeatHeight = 340;
   const seatPositions = useMemo(() => {
     if (!game) return [];
     const centerX = tableSeatWidth / 2;
     const centerY = tableSeatHeight / 2;
-    const radiusX = Math.max(60, tableSeatWidth / 2 - 72);
-    const radiusY = Math.max(70, tableSeatHeight / 2 - 56);
+    const radiusX = Math.max(90, tableSeatWidth / 2 - 82);
+    const radiusY = Math.max(95, tableSeatHeight / 2 - 86);
 
     return game.players.map((_, index) => {
       const angle = (-Math.PI / 2) + (2 * Math.PI * index) / Math.max(game.players.length, 2);
       return {
-        left: centerX + radiusX * Math.cos(angle) - 52,
-        top: centerY + radiusY * Math.sin(angle) - 34,
+        left: centerX + radiusX * Math.cos(angle) - 42,
+        top: centerY + radiusY * Math.sin(angle) - 42,
       };
     });
-  }, [game, playerCount, tableSeatHeight, tableSeatWidth]);
+  }, [game, tableSeatHeight, tableSeatWidth]);
 
   if (!game) {
     return (
@@ -129,14 +149,12 @@ export default function GameScreen() {
   }
 
   const toggleWinner = (playerId: string) => {
-    setSelectedWinners(prev =>
-      prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]
-    );
+    setSelectedWinners(prev => prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]);
   };
 
   const confirmWinners = () => {
     if (selectedWinners.length === 0) {
-      Alert.alert('Select Winner', 'Tap on winning player(s) first.');
+      Alert.alert('Select Winner', 'Tap winner seat(s), then confirm.');
       return;
     }
     awardToWinners(selectedWinners);
@@ -164,22 +182,29 @@ export default function GameScreen() {
     ]);
   };
 
+  const submitAddPlayer = () => {
+    const safeName = newPlayerName.trim();
+    if (!safeName) {
+      Alert.alert('Name required', 'Enter a player name.');
+      return;
+    }
+    addPlayerMidgame(safeName, Math.max(0, parseInt(newPlayerChips, 10) || 0));
+    setNewPlayerName('');
+    setNewPlayerChips('1000');
+  };
+
   const applyChipEdit = () => {
     if (!editPlayerId) return;
-    updatePlayerChips(editPlayerId, parseInt(editChips) || 0);
+    updatePlayerChips(editPlayerId, Math.max(0, parseInt(editChips, 10) || 0));
     setEditChips('');
     setEditPlayerId('');
   };
 
-  const submitAddPlayer = () => {
-    const name = newPlayerName.trim();
-    if (!name) {
-      Alert.alert('Name required', 'Enter a player name.');
-      return;
-    }
-    addPlayerMidgame(name, parseInt(newPlayerChips) || 0);
-    setNewPlayerName('');
-    setNewPlayerChips('1000');
+  const submitChat = () => {
+    const text = chatInput.trim();
+    if (!text) return;
+    sendChatMessage(text);
+    setChatInput('');
   };
 
   return (
@@ -190,11 +215,7 @@ export default function GameScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
-            {isShowdown
-              ? '🏆 Select Winner'
-              : isHandDone
-              ? 'Hand Complete'
-              : `${currentPlayer?.name || 'Player'}'s Turn`}
+            {isShowdown ? '🏆 Select Winner' : isHandDone ? 'Hand Complete' : `${currentPlayer?.name || 'Player'}\'s Turn`}
           </Text>
           {mode === 'online' && room && (
             <Text style={styles.roomText}>Room {room.roomCode} • {room.connectedUsers.length} online</Text>
@@ -219,6 +240,12 @@ export default function GameScreen() {
 
         {game.isHandActive && <PotDisplay game={game} />}
 
+        {timerPaused && (
+          <View style={styles.pausedBanner}>
+            <Text style={styles.pausedText}>⏸ Timer paused by admin</Text>
+          </View>
+        )}
+
         {shouldRunTimer && (
           <View style={styles.timerBar}>
             <Text style={styles.timerText}>⏱ {timeLeft}s</Text>
@@ -226,29 +253,30 @@ export default function GameScreen() {
         )}
 
         <View style={styles.tableWrap}>
-          <View style={styles.tableFelt}>
+          <View style={styles.tableOuter}>
+            <View style={styles.tableInner} />
             {game.players.map((player, index) => {
               const pos = seatPositions[index];
               const isSelected = selectedWinners.includes(player.id);
               const isSB = index === game.smallBlindIndex;
               const isBB = index === game.bigBlindIndex;
+
               return (
                 <TouchableOpacity
                   key={player.id}
                   activeOpacity={0.85}
-                  onPress={
-                    isShowdown && !player.isFolded && player.isActive
-                      ? () => toggleWinner(player.id)
-                      : undefined
-                  }
+                  onPress={isShowdown && !player.isFolded && player.isActive ? () => toggleWinner(player.id) : undefined}
                   style={[
                     styles.seat,
-                    { left: pos.left, top: pos.top },
+                    { left: pos?.left ?? 0, top: pos?.top ?? 0 },
                     player.isTurn && styles.seatTurn,
                     isSelected && styles.seatSelected,
                     player.isFolded && styles.seatFolded,
                   ]}
                 >
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{initials(player.name)}</Text>
+                  </View>
                   <Text style={styles.seatName} numberOfLines={1}>{player.name}</Text>
                   <Text style={styles.seatChips}>🪙 {formatChips(player.chips)}</Text>
                   <View style={styles.badgesRow}>
@@ -282,13 +310,8 @@ export default function GameScreen() {
         {isShowdown && (
           <View style={styles.showdownSection}>
             <Text style={styles.showdownText}>Tap winner seat(s), then confirm</Text>
-            <TouchableOpacity
-              style={[styles.confirmBtn, selectedWinners.length === 0 && styles.confirmBtnDisabled]}
-              onPress={confirmWinners}
-            >
-              <Text style={styles.confirmBtnText}>
-                {selectedWinners.length <= 1 ? 'Award Pot' : `Split Pot (${selectedWinners.length})`}
-              </Text>
+            <TouchableOpacity style={[styles.confirmBtn, selectedWinners.length === 0 && styles.confirmBtnDisabled]} onPress={confirmWinners}>
+              <Text style={styles.confirmBtnText}>{selectedWinners.length <= 1 ? 'Award Pot' : `Split Pot (${selectedWinners.length})`}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -300,6 +323,36 @@ export default function GameScreen() {
         </View>
 
         <HandHistory history={history} />
+
+        <View style={styles.chatContainer}>
+          <Text style={styles.chatTitle}>Table Chat</Text>
+          <View style={styles.chatList}>
+            {chatMessages.length === 0 ? (
+              <Text style={styles.chatEmpty}>No messages yet.</Text>
+            ) : (
+              chatMessages.slice(0, 20).map(message => (
+                <View key={message.id} style={styles.chatItem}>
+                  <Text style={styles.chatSender}>{message.sender}</Text>
+                  <Text style={styles.chatText}>{message.text}</Text>
+                </View>
+              ))
+            )}
+          </View>
+          <View style={styles.chatInputRow}>
+            <TextInput
+              style={styles.chatInput}
+              placeholder="Type a message"
+              placeholderTextColor={COLORS.textMuted}
+              value={chatInput}
+              onChangeText={setChatInput}
+              onSubmitEditing={submitChat}
+            />
+            <TouchableOpacity style={styles.chatSendBtn} onPress={submitChat}>
+              <Text style={styles.chatSendText}>Send</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={{ height: 130 }} />
       </ScrollView>
 
@@ -319,11 +372,10 @@ export default function GameScreen() {
             <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowAdmin(true); }}>
               <Text style={styles.menuItemText}>Admin Tools</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.menuItem, !canUndo && styles.menuItemDisabled]}
-              disabled={!canUndo}
-              onPress={() => { setShowMenu(false); undoLastAction(); }}
-            >
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); toggleTimerPaused(); }}>
+              <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.menuItem, !canUndo && styles.menuItemDisabled]} disabled={!canUndo} onPress={() => { setShowMenu(false); undoLastAction(); }}>
               <Text style={styles.menuItemText}>Undo Last Action</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
@@ -338,15 +390,19 @@ export default function GameScreen() {
 
       <Modal visible={showHands} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.handsPanel}>
-            <Text style={styles.menuTitle}>Poker Hands (High → Low)</Text>
+          <ScrollView contentContainerStyle={styles.handsPanel}>
+            <Text style={styles.menuTitle}>Poker Hand Rankings</Text>
             {HAND_RANKINGS.map((rank, idx) => (
-              <Text key={rank} style={styles.rankText}>{idx + 1}. {rank}</Text>
+              <View key={rank.title} style={styles.handCard}>
+                <Text style={styles.handTitle}>{idx + 1}. {rank.title}</Text>
+                <Text style={styles.handDescription}>{rank.description}</Text>
+                <Text style={styles.handExample}>Example: {rank.example}</Text>
+              </View>
             ))}
             <TouchableOpacity style={styles.menuItem} onPress={() => setShowHands(false)}>
               <Text style={styles.menuItemText}>Close</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -387,7 +443,8 @@ export default function GameScreen() {
                 <Text style={styles.menuItemText}>{player.name} • {formatChips(player.chips)}</Text>
               </TouchableOpacity>
             ))}
-            {editPlayerId ? (
+
+            {!!editPlayerId && (
               <>
                 <TextInput
                   style={styles.adminInput}
@@ -401,7 +458,11 @@ export default function GameScreen() {
                   <Text style={styles.menuItemText}>Apply Chip Correction</Text>
                 </TouchableOpacity>
               </>
-            ) : null}
+            )}
+
+            <TouchableOpacity style={styles.menuItem} onPress={() => toggleTimerPaused()}>
+              <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity style={[styles.menuItem, styles.menuDanger]} onPress={() => setShowAdmin(false)}>
               <Text style={[styles.menuItemText, styles.menuDangerText]}>Close Admin</Text>
@@ -470,6 +531,16 @@ const styles = StyleSheet.create({
   },
   newGameText: { color: COLORS.background, fontSize: FONT_SIZES.md, fontWeight: '700' },
 
+  pausedBanner: {
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceHighlight,
+  },
+  pausedText: { color: COLORS.warning, fontWeight: '800' },
+
   timerBar: {
     marginHorizontal: SPACING.md,
     marginBottom: SPACING.sm,
@@ -481,32 +552,55 @@ const styles = StyleSheet.create({
   timerText: { color: COLORS.warning, fontWeight: '700' },
 
   tableWrap: { marginHorizontal: SPACING.md, marginBottom: SPACING.md },
-  tableFelt: {
-    height: 300,
-    borderRadius: BORDER_RADIUS.xl,
-    backgroundColor: COLORS.felt,
+  tableOuter: {
+    height: 340,
+    borderRadius: 200,
+    backgroundColor: COLORS.feltLight,
     borderWidth: 3,
     borderColor: COLORS.feltDark,
     position: 'relative',
+    overflow: 'hidden',
+  },
+  tableInner: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: 38,
+    bottom: 38,
+    borderRadius: 170,
+    backgroundColor: COLORS.felt,
+    borderWidth: 2,
+    borderColor: COLORS.feltLight,
   },
   seat: {
     position: 'absolute',
-    width: 104,
+    width: 84,
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.md,
     paddingVertical: SPACING.xs,
-    paddingHorizontal: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
     borderWidth: 1,
     borderColor: COLORS.surfaceHighlight,
+    alignItems: 'center',
   },
   seatTurn: { borderColor: COLORS.success, borderWidth: 2 },
   seatSelected: { borderColor: COLORS.primary, borderWidth: 2 },
-  seatFolded: { opacity: 0.45 },
+  seatFolded: { opacity: 0.5 },
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: COLORS.surfaceHighlight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  avatarText: { color: COLORS.text, fontSize: FONT_SIZES.xs, fontWeight: '800' },
   seatName: { color: COLORS.text, fontWeight: '700', fontSize: FONT_SIZES.xs },
-  seatChips: { color: COLORS.primaryLight, fontSize: FONT_SIZES.xs, marginTop: 2 },
-  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  seatChips: { color: COLORS.primaryLight, fontSize: 10, marginTop: 1 },
+  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 4, marginTop: 4 },
   badge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: BORDER_RADIUS.full },
-  badgeText: { color: COLORS.text, fontSize: 10, fontWeight: '700' },
+  badgeText: { color: COLORS.text, fontSize: 9, fontWeight: '700' },
 
   dealSection: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
   dealBtn: {
@@ -538,6 +632,41 @@ const styles = StyleSheet.create({
 
   playersSection: { paddingHorizontal: SPACING.md, marginBottom: SPACING.md },
 
+  chatContainer: {
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+  },
+  chatTitle: { color: COLORS.text, fontWeight: '800', marginBottom: SPACING.sm },
+  chatList: {
+    maxHeight: 140,
+    marginBottom: SPACING.sm,
+  },
+  chatEmpty: { color: COLORS.textMuted, fontSize: FONT_SIZES.sm },
+  chatItem: { marginBottom: SPACING.xs },
+  chatSender: { color: COLORS.primaryLight, fontSize: FONT_SIZES.xs, fontWeight: '700' },
+  chatText: { color: COLORS.textSecondary, fontSize: FONT_SIZES.sm },
+  chatInputRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
+  chatInput: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    borderColor: COLORS.surfaceHighlight,
+    borderWidth: 1,
+    borderRadius: BORDER_RADIUS.md,
+    color: COLORS.text,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  chatSendBtn: {
+    backgroundColor: COLORS.felt,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  chatSendText: { color: COLORS.text, fontWeight: '700' },
+
   controlsContainer: {
     position: 'absolute',
     bottom: 0,
@@ -552,7 +681,7 @@ const styles = StyleSheet.create({
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',
     padding: SPACING.md,
@@ -568,9 +697,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderRadius: BORDER_RADIUS.lg,
     padding: SPACING.xxl,
-    width: '86%',
-    maxWidth: 360,
-    gap: SPACING.xs,
+    width: '92%',
+    maxWidth: 520,
+    gap: SPACING.sm,
   },
   adminPanel: {
     backgroundColor: COLORS.surface,
@@ -598,7 +727,16 @@ const styles = StyleSheet.create({
   menuItemText: { color: COLORS.text, fontSize: FONT_SIZES.md, fontWeight: '600' },
   menuDanger: { backgroundColor: COLORS.dangerDark },
   menuDangerText: { color: COLORS.text },
-  rankText: { color: COLORS.textSecondary, fontSize: FONT_SIZES.md },
+
+  handCard: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  handTitle: { color: COLORS.primaryLight, fontWeight: '800', marginBottom: 2 },
+  handDescription: { color: COLORS.textSecondary, fontSize: FONT_SIZES.sm },
+  handExample: { color: COLORS.text, fontSize: FONT_SIZES.sm, marginTop: 4 },
 
   adminLabel: {
     color: COLORS.primary,

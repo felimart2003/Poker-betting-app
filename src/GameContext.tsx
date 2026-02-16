@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
-import { GameState, GameMode, GameSettings, DEFAULT_SETTINGS, RoomState } from './types';
+import { ChatMessage, GameMode, GameSettings, GameState, DEFAULT_SETTINGS, RoomState } from './types';
 import {
   addPlayerToGame,
-  editPlayerChips,
-  createGame,
-  startNewHand,
-  performAction,
-  awardPot,
   advanceDealer,
+  awardPot,
+  createGame,
+  editPlayerChips,
+  performAction,
+  startNewHand,
 } from './gameState';
 import { networkClient } from './network';
 
@@ -16,10 +16,18 @@ interface GameContextType {
   settings: GameSettings;
   mode: GameMode;
   room: RoomState | null;
+  history: string[];
+  chatMessages: ChatMessage[];
+  timerPaused: boolean;
   canUndo: boolean;
   updateSettings: (settings: Partial<GameSettings>) => void;
   setMode: (mode: GameMode) => void;
-  connectToRoom: (params: { roomCode: string; playerName: string; serverUrl: string; create: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  connectToRoom: (params: {
+    roomCode: string;
+    playerName: string;
+    serverUrl: string;
+    create: boolean;
+  }) => Promise<{ ok: boolean; error?: string }>;
   disconnectRoom: () => void;
   initGame: () => void;
   dealNewHand: () => void;
@@ -29,11 +37,17 @@ interface GameContextType {
   addPlayerMidgame: (name: string, chips: number) => void;
   updatePlayerChips: (playerId: string, chips: number) => void;
   undoLastAction: () => void;
+  toggleTimerPaused: (paused?: boolean) => void;
+  sendChatMessage: (text: string) => void;
   resetGame: () => void;
-  history: string[];
 }
 
 const GameContext = createContext<GameContextType | null>(null);
+
+type UndoState = {
+  game: GameState | null;
+  history: string[];
+};
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const [game, setGame] = useState<GameState | null>(null);
@@ -41,12 +55,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<GameMode>('local');
   const [room, setRoom] = useState<RoomState | null>(null);
   const [history, setHistory] = useState<string[]>([]);
-  const [pastStates, setPastStates] = useState<Array<{ game: GameState | null; history: string[] }>>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [timerPaused, setTimerPaused] = useState(false);
+  const [pastStates, setPastStates] = useState<UndoState[]>([]);
   const applyingRemoteRef = useRef(false);
-
-  const addHistory = useCallback((msg: string) => {
-    setHistory(prev => [msg, ...prev].slice(0, 50));
-  }, []);
 
   const saveUndoSnapshot = useCallback((currentGame: GameState | null, currentHistory: string[]) => {
     setPastStates(prev => [{
@@ -78,6 +90,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const { roomCode, playerName, serverUrl, create } = params;
     try {
       networkClient.connect(serverUrl);
+
       const response = await new Promise<{ ok: boolean; error?: string; snapshot?: any }>(resolve => {
         if (create) {
           networkClient.createRoom(roomCode, playerName, resolve);
@@ -97,24 +110,38 @@ export function GameProvider({ children }: { children: ReactNode }) {
         serverUrl,
         mode: 'online',
         connectedUsers: response.snapshot.users || [],
+        timerPaused: !!response.snapshot.timerPaused,
       });
 
       if (response.snapshot.settings) setSettings(response.snapshot.settings);
       if (response.snapshot.game) setGame(response.snapshot.game);
       if (response.snapshot.history) setHistory(response.snapshot.history);
+      if (response.snapshot.chat) setChatMessages(response.snapshot.chat);
+      setTimerPaused(!!response.snapshot.timerPaused);
 
       networkClient.offAll();
       networkClient.onRoomUpdate(snapshot => {
-        setRoom(prev => prev ? { ...prev, connectedUsers: snapshot.users || [] } : prev);
+        setRoom(prev => prev ? {
+          ...prev,
+          connectedUsers: snapshot.users || [],
+          timerPaused: !!snapshot.timerPaused,
+        } : prev);
       });
       networkClient.onStateUpdate(next => {
         applyingRemoteRef.current = true;
         if (next.settings) setSettings(next.settings);
         if (typeof next.game !== 'undefined') setGame(next.game);
         if (next.history) setHistory(next.history);
+        if (typeof next.timerPaused === 'boolean') {
+          setTimerPaused(next.timerPaused);
+          setRoom(prev => prev ? { ...prev, timerPaused: !!next.timerPaused } : prev);
+        }
         setTimeout(() => {
           applyingRemoteRef.current = false;
         }, 0);
+      });
+      networkClient.onChatUpdate(payload => {
+        setChatMessages(payload.chat || []);
       });
 
       return { ok: true };
@@ -128,67 +155,73 @@ export function GameProvider({ children }: { children: ReactNode }) {
     networkClient.disconnect();
     setMode('local');
     setRoom(null);
+    setChatMessages([]);
+    setTimerPaused(false);
   }, []);
 
   const initGame = useCallback(() => {
-    const g = createGame(settings);
+    const newGame = createGame(settings);
     saveUndoSnapshot(game, history);
-    setGame(g);
-    setHistory([]);
+    setGame(newGame);
     const nextHistory = [`[pre-flop] Game started with ${settings.playerNames.length} players`];
     setHistory(nextHistory);
-    pushOnlineState(g, settings, nextHistory);
-  }, [settings, saveUndoSnapshot, game, history, pushOnlineState]);
+    setPastStates([]);
+    setTimerPaused(false);
+    pushOnlineState(newGame, settings, nextHistory);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const dealNewHand = useCallback(() => {
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = startNewHand(game);
-    setGame(newGame);
     const dealer = newGame.players[newGame.dealerIndex];
     const nextHistory = [`[${newGame.round}] --- Hand #${newGame.roundNumber} --- Dealer: ${dealer.name}`, ...history].slice(0, 50);
+    setGame(newGame);
     setHistory(nextHistory);
+    setTimerPaused(false);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const doAction = useCallback((action: string, amount?: number) => {
     if (!game) return;
     saveUndoSnapshot(game, history);
     const player = game.players[game.currentPlayerIndex];
     const newGame = performAction(game, action, amount);
-    setGame(newGame);
 
     let msg = `[${game.round}] ${player.name}: ${action}`;
-    if (amount && (action === 'bet' || action === 'raise')) {
-      msg += ` to ${amount}`;
+    if (typeof amount === 'number' && (action === 'bet' || action === 'raise')) {
+      msg += ` to ${Math.max(0, Math.floor(amount))}`;
     }
     if (action === 'all-in') {
       msg += ` (${player.chips + player.currentBet})`;
     }
-    let nextHistory = [msg, ...history].slice(0, 50);
 
-    // Check if only one player remains
+    let nextHistory = [msg, ...history].slice(0, 50);
     const remaining = newGame.players.filter(p => !p.isFolded && p.isActive);
     if (remaining.length === 1 && !newGame.isHandActive) {
       nextHistory = [`[${newGame.round}] ${remaining[0].name} wins the pot!`, ...nextHistory].slice(0, 50);
     }
+
+    setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const awardToWinners = useCallback((winnerIds: string[]) => {
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = awardPot(game, winnerIds);
-    setGame(newGame);
     const names = winnerIds
       .map(id => newGame.players.find(p => p.id === id)?.name)
       .filter(Boolean)
       .join(', ');
+
     const nextHistory = [`[${newGame.round}] Pot awarded to: ${names}`, ...history].slice(0, 50);
+    setGame(newGame);
     setHistory(nextHistory);
+    setTimerPaused(false);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const nextDealer = useCallback(() => {
     if (!game) return;
@@ -196,7 +229,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const newGame = advanceDealer(game);
     setGame(newGame);
     pushOnlineState(newGame, settings, history);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const addPlayerMidgame = useCallback((name: string, chips: number) => {
     if (!game) return;
@@ -206,19 +239,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const updatePlayerChips = useCallback((playerId: string, chips: number) => {
     if (!game) return;
     const player = game.players.find(p => p.id === playerId);
     if (!player) return;
+
     saveUndoSnapshot(game, history);
-    const newGame = editPlayerChips(game, playerId, chips);
-    const nextHistory = [`[${newGame.round}] Chip correction: ${player.name} -> ${chips}`, ...history].slice(0, 50);
+    const safeChips = Math.max(0, Math.floor(chips));
+    const newGame = editPlayerChips(game, playerId, safeChips);
+    const nextHistory = [`[${newGame.round}] Chip correction: ${player.name} -> ${safeChips}`, ...history].slice(0, 50);
     setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, settings, saveUndoSnapshot, pushOnlineState]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
 
   const undoLastAction = useCallback(() => {
     if (pastStates.length === 0) return;
@@ -227,14 +262,43 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGame(latest.game);
     setHistory(latest.history);
     pushOnlineState(latest.game, settings, latest.history);
-  }, [pastStates, settings, pushOnlineState]);
+  }, [pastStates, pushOnlineState, settings]);
+
+  const toggleTimerPaused = useCallback((paused?: boolean) => {
+    const nextPaused = typeof paused === 'boolean' ? paused : !timerPaused;
+    setTimerPaused(nextPaused);
+    setRoom(prev => prev ? { ...prev, timerPaused: nextPaused } : prev);
+    if (mode === 'online' && room) {
+      networkClient.setTimerPaused(room.roomCode, nextPaused);
+    }
+  }, [mode, room, timerPaused]);
+
+  const sendChatMessage = useCallback((text: string) => {
+    const messageText = text.trim();
+    if (!messageText) return;
+
+    if (mode === 'online' && room) {
+      networkClient.sendChat(room.roomCode, room.playerName, messageText);
+      return;
+    }
+
+    const localMessage: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sender: 'Table',
+      text: messageText,
+      createdAt: Date.now(),
+    };
+    setChatMessages(prev => [localMessage, ...prev].slice(0, 100));
+  }, [mode, room]);
 
   const resetGame = useCallback(() => {
     setGame(null);
     setHistory([]);
     setPastStates([]);
+    setChatMessages([]);
+    setTimerPaused(false);
     pushOnlineState(null, settings, []);
-  }, [settings, pushOnlineState]);
+  }, [pushOnlineState, settings]);
 
   return (
     <GameContext.Provider
@@ -243,6 +307,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
         settings,
         mode,
         room,
+        history,
+        chatMessages,
+        timerPaused,
         canUndo: pastStates.length > 0,
         updateSettings,
         setMode,
@@ -256,8 +323,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
         addPlayerMidgame,
         updatePlayerChips,
         undoLastAction,
+        toggleTimerPaused,
+        sendChatMessage,
         resetGame,
-        history,
       }}
     >
       {children}

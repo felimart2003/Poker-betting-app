@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
 import { useGame } from '../src/GameContext';
@@ -153,6 +154,19 @@ export default function SetupScreen() {
                 onChangeText={t => updateSettings({ startingChips: parseInt(t) || 1000 })}
                 keyboardType="numeric"
               />
+            </View>
+            <View style={styles.sliderWrap}>
+              <Slider
+                minimumValue={100}
+                maximumValue={20000}
+                step={100}
+                minimumTrackTintColor={COLORS.primary}
+                maximumTrackTintColor={COLORS.surfaceHighlight}
+                thumbTintColor={COLORS.primaryLight}
+                value={settings.startingChips}
+                onValueChange={(value: number) => updateSettings({ startingChips: value })}
+              />
+              <Text style={styles.sliderLabel}>🪙 {settings.startingChips.toLocaleString()}</Text>
             </View>
           </View>
 
@@ -358,6 +372,19 @@ const styles = StyleSheet.create({
     minWidth: 80,
     borderWidth: 1,
     borderColor: COLORS.surfaceHighlight,
+  },
+  sliderWrap: {
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
+  },
+  sliderLabel: {
+    textAlign: 'center',
+    color: COLORS.primaryLight,
+    fontWeight: '700',
+    marginTop: SPACING.xs,
   },
   blindInputRow: {
     flexDirection: 'row',

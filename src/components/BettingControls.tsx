@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Dimensions,
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme';
 import { getAvailableActions, getCallAmount, getMinRaise, formatChips } from '../gameState';
@@ -20,18 +19,20 @@ export function BettingControls({ game, onAction }: BettingControlsProps) {
   const actions = getAvailableActions(game);
   const player = game.players[game.currentPlayerIndex];
   const callAmount = getCallAmount(game);
-  const minRaise = getMinRaise(game);
+  const minRaise = Math.max(1, getMinRaise(game));
   const [raiseAmount, setRaiseAmount] = useState(minRaise.toString());
   const [showRaiseSlider, setShowRaiseSlider] = useState(false);
 
   if (!player || actions.length === 0) return null;
 
   const maxBet = player.chips + player.currentBet;
-  const currentRaise = parseInt(raiseAmount) || minRaise;
+  const parsedRaise = Number.parseInt(raiseAmount, 10);
+  const currentRaise = Number.isFinite(parsedRaise) ? parsedRaise : minRaise;
+  const clampedRaise = Math.max(minRaise, Math.min(currentRaise, maxBet));
 
   const handleRaise = () => {
     if (showRaiseSlider) {
-      const amt = Math.max(minRaise, Math.min(currentRaise, maxBet));
+      const amt = clampedRaise;
       onAction(game.currentBet === 0 ? 'bet' : 'raise', amt);
       setShowRaiseSlider(false);
     } else {
@@ -41,7 +42,7 @@ export function BettingControls({ game, onAction }: BettingControlsProps) {
   };
 
   const adjustRaise = (delta: number) => {
-    const newAmt = Math.max(minRaise, Math.min(currentRaise + delta, maxBet));
+    const newAmt = Math.max(minRaise, Math.min(clampedRaise + delta, maxBet));
     setRaiseAmount(newAmt.toString());
   };
 
@@ -143,7 +144,7 @@ export function BettingControls({ game, onAction }: BettingControlsProps) {
           >
             <Text style={styles.raiseText}>
               {showRaiseSlider
-                ? `${game.currentBet === 0 ? 'Bet' : 'Raise'} ${formatChips(currentRaise)}`
+                ? `${game.currentBet === 0 ? 'Bet' : 'Raise'} ${formatChips(clampedRaise)}`
                 : game.currentBet === 0
                 ? 'Bet'
                 : 'Raise'}

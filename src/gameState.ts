@@ -151,11 +151,12 @@ export function getAvailableActions(game: GameState): string[] {
 
 export function getCallAmount(game: GameState): number {
   const player = game.players[game.currentPlayerIndex];
-  return Math.min(game.currentBet - player.currentBet, player.chips);
+  const toCall = Math.max(0, game.currentBet - player.currentBet);
+  return Math.min(toCall, player.chips);
 }
 
 export function getMinRaise(game: GameState): number {
-  const toCall = game.currentBet - game.players[game.currentPlayerIndex].currentBet;
+  const toCall = Math.max(0, game.currentBet - game.players[game.currentPlayerIndex].currentBet);
   return toCall + Math.max(game.lastRaiseAmount, game.bigBlind);
 }
 
@@ -178,7 +179,8 @@ export function performAction(
       break;
 
     case 'call': {
-      const callAmount = Math.min(newGame.currentBet - player.currentBet, player.chips);
+      const toCall = Math.max(0, newGame.currentBet - player.currentBet);
+      const callAmount = Math.min(toCall, player.chips);
       player.chips -= callAmount;
       player.currentBet += callAmount;
       newGame.pot += callAmount;
@@ -188,8 +190,13 @@ export function performAction(
 
     case 'bet':
     case 'raise': {
-      const betAmount = amount || getMinRaise(newGame);
-      const totalBet = Math.min(betAmount, player.chips + player.currentBet);
+      const minRaise = getMinRaise(newGame);
+      const rawBetAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : minRaise;
+      const safeBetAmount = Math.max(minRaise, Math.floor(rawBetAmount));
+      const totalBet = Math.min(safeBetAmount, player.chips + player.currentBet);
+      if (totalBet <= player.currentBet) {
+        break;
+      }
       const chipsNeeded = totalBet - player.currentBet;
       const actualChips = Math.min(chipsNeeded, player.chips);
 

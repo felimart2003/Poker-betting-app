@@ -1,11 +1,13 @@
 import { io, Socket } from 'socket.io-client';
-import { GameState, GameSettings } from './types';
+import { ChatMessage, GameState, GameSettings } from './types';
 
 type RoomSnapshot = {
   roomCode: string;
   game: GameState | null;
   settings: GameSettings | null;
   history: string[];
+  chat: ChatMessage[];
+  timerPaused: boolean;
   users: Array<{ socketId: string; playerName: string }>;
   hostSocketId: string | null;
 };
@@ -14,6 +16,11 @@ type StateUpdate = {
   game: GameState | null;
   settings: GameSettings | null;
   history: string[];
+  timerPaused?: boolean;
+};
+
+type ChatUpdate = {
+  chat: ChatMessage[];
 };
 
 class NetworkClient {
@@ -59,6 +66,18 @@ class NetworkClient {
 
   onStateUpdate(handler: (state: StateUpdate) => void) {
     this.socket?.on('state:update', handler);
+  }
+
+  sendChat(roomCode: string, sender: string, text: string) {
+    this.socket?.emit('chat:send', { roomCode, sender, text });
+  }
+
+  onChatUpdate(handler: (payload: ChatUpdate) => void) {
+    this.socket?.on('chat:update', handler);
+  }
+
+  setTimerPaused(roomCode: string, paused: boolean) {
+    this.socket?.emit('timer:pause', { roomCode, paused });
   }
 
   offAll() {

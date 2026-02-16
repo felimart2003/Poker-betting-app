@@ -16,7 +16,7 @@ import { useGame } from '../src/GameContext';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { connectToRoom } = useGame();
+  const { connectToRoom, setMode, disconnectRoom } = useGame();
   const [roomCode, setRoomCode] = useState('POKER1');
   const [playerName, setPlayerName] = useState('Player');
   const [serverUrl, setServerUrl] = useState('http://192.168.0.11:4000');
@@ -59,9 +59,13 @@ export default function HomeScreen() {
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={() => router.push('/setup')}
+            onPress={() => {
+              disconnectRoom();
+              setMode('local');
+              router.push('/setup');
+            }}
           >
-            <Text style={styles.primaryBtnText}>New Game</Text>
+            <Text style={styles.primaryBtnText}>Offline Pass & Play</Text>
           </TouchableOpacity>
 
           <View style={styles.onlineCard}>

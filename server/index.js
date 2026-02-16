@@ -21,6 +21,8 @@ function getRoom(roomCode) {
       game: null,
       settings: null,
       history: [],
+      chat: [],
+      timerPaused: false,
       users: new Map(),
       hostSocketId: null,
     });
@@ -35,6 +37,8 @@ function roomSnapshot(roomCode) {
     game: room.game,
     settings: room.settings,
     history: room.history,
+    chat: room.chat,
+    timerPaused: room.timerPaused,
     users: Array.from(room.users.values()),
     hostSocketId: room.hostSocketId,
   };
@@ -86,8 +90,40 @@ io.on('connection', socket => {
       game: room.game,
       settings: room.settings,
       history: room.history,
+      timerPaused: room.timerPaused,
     });
     ack?.({ ok: true });
+  });
+
+  socket.on('chat:send', ({ roomCode, sender, text }) => {
+    const normalizedCode = (roomCode || '').trim().toUpperCase();
+    const room = rooms.get(normalizedCode);
+    const safeText = typeof text === 'string' ? text.trim() : '';
+    if (!room || !safeText) return;
+
+    const message = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sender: sender || 'Player',
+      text: safeText,
+      createdAt: Date.now(),
+    };
+
+    room.chat = [message, ...room.chat].slice(0, 100);
+    io.to(normalizedCode).emit('chat:update', { chat: room.chat });
+  });
+
+  socket.on('timer:pause', ({ roomCode, paused }) => {
+    const normalizedCode = (roomCode || '').trim().toUpperCase();
+    const room = rooms.get(normalizedCode);
+    if (!room) return;
+
+    room.timerPaused = !!paused;
+    io.to(normalizedCode).emit('state:update', {
+      game: room.game,
+      settings: room.settings,
+      history: room.history,
+      timerPaused: room.timerPaused,
+    });
   });
 
   socket.on('disconnect', () => {
