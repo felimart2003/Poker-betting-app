@@ -62,28 +62,15 @@ export default function GameScreen() {
   const [editChips, setEditChips] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
 
-  if (!game) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <Text style={styles.emptyText}>No game in progress</Text>
-          <TouchableOpacity style={styles.goBackBtn} onPress={() => router.replace('/')}>
-            <Text style={styles.goBackText}>Go Home</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const gameOver = isGameOver(game);
-  const winner = getWinner(game);
-  const isShowdown = game.round === 'showdown' && game.isHandActive;
-  const isHandDone = !game.isHandActive;
-  const currentPlayer = game.players[game.currentPlayerIndex];
-  const shouldRunTimer = settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown;
+  const gameOver = game ? isGameOver(game) : false;
+  const winner = game ? getWinner(game) : null;
+  const isShowdown = !!game && game.round === 'showdown' && game.isHandActive;
+  const isHandDone = !!game && !game.isHandActive;
+  const currentPlayer = game ? game.players[game.currentPlayerIndex] : null;
+  const shouldRunTimer = !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown;
 
   useEffect(() => {
-    if (!shouldRunTimer) {
+    if (!game || !shouldRunTimer) {
       setTimeLeft(0);
       return;
     }
@@ -100,17 +87,20 @@ export default function GameScreen() {
     }, 1000);
     return () => clearInterval(id);
   }, [
-    game.currentPlayerIndex,
-    game.round,
-    game.roundNumber,
-    game.isHandActive,
+    game?.currentPlayerIndex,
+    game?.round,
+    game?.roundNumber,
+    game?.isHandActive,
     shouldRunTimer,
     settings.decisionTimerSeconds,
+    doAction,
   ]);
 
   const tableSeatWidth = Dimensions.get('window').width - SPACING.md * 2;
   const tableSeatHeight = 300;
+  const playerCount = game?.players.length ?? 0;
   const seatPositions = useMemo(() => {
+    if (!game) return [];
     const centerX = tableSeatWidth / 2;
     const centerY = tableSeatHeight / 2;
     const radiusX = Math.max(60, tableSeatWidth / 2 - 72);
@@ -123,7 +113,20 @@ export default function GameScreen() {
         top: centerY + radiusY * Math.sin(angle) - 34,
       };
     });
-  }, [game.players.length, tableSeatHeight, tableSeatWidth]);
+  }, [game, playerCount, tableSeatHeight, tableSeatWidth]);
+
+  if (!game) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.emptyText}>No game in progress</Text>
+          <TouchableOpacity style={styles.goBackBtn} onPress={() => router.replace('/')}>
+            <Text style={styles.goBackText}>Go Home</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const toggleWinner = (playerId: string) => {
     setSelectedWinners(prev =>
