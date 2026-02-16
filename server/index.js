@@ -15,6 +15,18 @@ const io = new Server(server, {
 
 const rooms = new Map();
 
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 to avoid confusion
+  let code;
+  do {
+    code = '';
+    for (let i = 0; i < 5; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+  } while (rooms.has(code));
+  return code;
+}
+
 function getRoom(roomCode) {
   if (!rooms.has(roomCode)) {
     rooms.set(roomCode, {
@@ -45,20 +57,15 @@ function roomSnapshot(roomCode) {
 }
 
 io.on('connection', socket => {
-  socket.on('room:create', ({ roomCode, playerName }, ack) => {
-    const normalizedCode = (roomCode || '').trim().toUpperCase();
-    if (!normalizedCode) {
-      ack?.({ ok: false, error: 'Room code required' });
-      return;
-    }
-
-    const room = getRoom(normalizedCode);
+  socket.on('room:create', ({ playerName }, ack) => {
+    const roomCode = generateRoomCode();
+    const room = getRoom(roomCode);
     room.hostSocketId = socket.id;
     room.users.set(socket.id, { socketId: socket.id, playerName: playerName || 'Host' });
-    socket.join(normalizedCode);
+    socket.join(roomCode);
 
-    io.to(normalizedCode).emit('room:update', roomSnapshot(normalizedCode));
-    ack?.({ ok: true, snapshot: roomSnapshot(normalizedCode) });
+    io.to(roomCode).emit('room:update', roomSnapshot(roomCode));
+    ack?.({ ok: true, snapshot: roomSnapshot(roomCode) });
   });
 
   socket.on('room:join', ({ roomCode, playerName }, ack) => {

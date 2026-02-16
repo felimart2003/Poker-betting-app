@@ -27,37 +27,72 @@ class NetworkClient {
   private socket: Socket | null = null;
   private currentServerUrl: string | null = null;
 
-  connect(serverUrl: string) {
+  /**
+   * Connect to the server and WAIT until the socket is actually connected.
+   * Resolves when connected, rejects on error or timeout.
+   */
+  async connectAndWait(serverUrl: string, timeoutMs = 10000): Promise<void> {
     const normalizedUrl = serverUrl.trim();
-    if (this.socket && this.currentServerUrl !== normalizedUrl) {
+
+    // Already connected to same URL — reuse
+    if (this.socket?.connected && this.currentServerUrl === normalizedUrl) {
+      return;
+    }
+
+    // Clean up any existing socket
+    if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
     }
 
-    if (this.socket) return this.socket;
-
     this.currentServerUrl = normalizedUrl;
-    this.socket = io(normalizedUrl, {
-      transports: ['websocket', 'polling'],
-      timeout: 10000,
-      reconnection: true,
-      reconnectionAttempts: 5,
+
+    return new Promise<void>((resolve, reject) => {
+      this.socket = io(normalizedUrl, {
+        transports: ['websocket', 'polling'],
+        timeout: timeoutMs,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        forceNew: true,
+      });
+
+      const timer = setTimeout(() => {
+        this.socket?.removeAllListeners();
+        this.socket?.disconnect();
+        this.socket = null;
+        this.currentServerUrl = null;
+        reject(new Error('Connection timed out. Is the server running?'));
+      }, timeoutMs);
+
+      this.socket.on('connect', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+
+      this.socket.on('connect_error', (err: Error) => {
+        clearTimeout(timer);
+        this.socket?.removeAllListeners();
+        this.socket?.disconnect();
+        this.socket = null;
+        this.currentServerUrl = null;
+        reject(new Error(err.message || 'Could not reach the server.'));
+      });
     });
-    return this.socket;
   }
 
   disconnect() {
+    this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
     this.currentServerUrl = null;
   }
 
   createRoom(
-    roomCode: string,
     playerName: string,
     callback: (result: { ok: boolean; error?: string; snapshot?: RoomSnapshot }) => void
   ) {
-    this.socket?.emit('room:create', { roomCode, playerName }, callback);
+    this.socket?.emit('room:create', { playerName }, callback);
   }
 
   joinRoom(
@@ -101,6 +136,10 @@ class NetworkClient {
 
   getSocketId() {
     return this.socket?.id || null;
+  }
+
+  isConnected() {
+    return this.socket?.connected ?? false;
   }
 }
 

@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
@@ -81,6 +82,27 @@ export default function SetupScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Room Code Banner (online mode) */}
+          {mode === 'online' && room?.roomCode && (
+            <TouchableOpacity
+              style={styles.roomCodeBanner}
+              onPress={() => {
+                Clipboard.setStringAsync(room.roomCode);
+                Alert.alert('Copied!', `Room code ${room.roomCode} copied to clipboard.`);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.roomCodeLabel}>Room Code (tap to copy)</Text>
+              <Text style={styles.roomCodeValue}>{room.roomCode}</Text>
+              <Text style={styles.roomCodeHint}>Share this code with other players to join</Text>
+              {room.connectedUsers && room.connectedUsers.length > 0 && (
+                <Text style={styles.roomCodeUsers}>
+                  {room.connectedUsers.length} player{room.connectedUsers.length !== 1 ? 's' : ''} connected
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
           {/* Players Section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Players</Text>
@@ -241,7 +263,7 @@ export default function SetupScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Room: {room.roomCode}</Text>
               <Text style={styles.sectionDesc}>Connected players: {room.connectedUsers.length}</Text>
-              {room.connectedUsers.map(user => (
+              {room.connectedUsers.map((user: { socketId: string; playerName: string }) => (
                 <View key={user.socketId} style={styles.playerRow}>
                   <View style={styles.playerDot} />
                   <Text style={styles.playerInput}>{user.playerName}</Text>
@@ -410,5 +432,35 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontSize: FONT_SIZES.xl,
     fontWeight: '800',
+  },
+  roomCodeBanner: {
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  roomCodeLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    marginBottom: SPACING.xs,
+  },
+  roomCodeValue: {
+    color: '#fff',
+    fontSize: 36,
+    fontWeight: '900',
+    letterSpacing: 6,
+  },
+  roomCodeHint: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: FONT_SIZES.xs,
+    marginTop: SPACING.xs,
+  },
+  roomCodeUsers: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    marginTop: SPACING.sm,
   },
 });

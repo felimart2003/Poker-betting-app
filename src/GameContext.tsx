@@ -10,6 +10,7 @@ import {
   startNewHand,
 } from './gameState';
 import { networkClient } from './network';
+import { DEFAULT_SERVER_URL } from './config';
 
 interface GameContextType {
   game: GameState | null;
@@ -20,14 +21,15 @@ interface GameContextType {
   chatMessages: ChatMessage[];
   timerPaused: boolean;
   canUndo: boolean;
+  serverUrl: string;
+  setServerUrl: (url: string) => void;
   updateSettings: (settings: Partial<GameSettings>) => void;
   setMode: (mode: GameMode) => void;
   connectToRoom: (params: {
-    roomCode: string;
     playerName: string;
-    serverUrl: string;
+    roomCode?: string;
     create: boolean;
-  }) => Promise<{ ok: boolean; error?: string }>;
+  }) => Promise<{ ok: boolean; error?: string; roomCode?: string }>;
   disconnectRoom: () => void;
   initGame: () => void;
   dealNewHand: () => void;
@@ -58,6 +60,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [timerPaused, setTimerPaused] = useState(false);
   const [pastStates, setPastStates] = useState<UndoState[]>([]);
+  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const applyingRemoteRef = useRef(false);
 
   const saveUndoSnapshot = useCallback((currentGame: GameState | null, currentHistory: string[]) => {
@@ -85,35 +88,33 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, [game, history, pushOnlineState]);
 
   const connectToRoom = useCallback(async (
-    params: { roomCode: string; playerName: string; serverUrl: string; create: boolean }
+    params: { playerName: string; roomCode?: string; create: boolean }
   ) => {
-    const roomCode = params.roomCode.trim().toUpperCase();
     const playerName = params.playerName.trim();
-    const serverUrl = params.serverUrl.trim();
     const create = params.create;
 
-    if (!roomCode) {
-      return { ok: false, error: 'Room code is required.' };
-    }
     if (!playerName) {
       return { ok: false, error: 'Player name is required.' };
     }
-    if (!serverUrl) {
-      return { ok: false, error: 'Server URL is required.' };
+    if (!create && !params.roomCode?.trim()) {
+      return { ok: false, error: 'Room code is required to join.' };
+    }
+    if (!serverUrl.trim()) {
+      return { ok: false, error: 'Server URL is not configured.' };
     }
 
     try {
       networkClient.offAll();
       networkClient.disconnect();
-      networkClient.connect(serverUrl);
+      await networkClient.connectAndWait(serverUrl);
 
       const response = await new Promise<{ ok: boolean; error?: string; snapshot?: any }>(resolve => {
         let resolved = false;
         const timeout = setTimeout(() => {
           if (resolved) return;
           resolved = true;
-          resolve({ ok: false, error: 'Connection timed out. Check server URL and try again.' });
-        }, 12000);
+          resolve({ ok: false, error: 'Server did not respond. Try again.' });
+        }, 10000);
 
         const finalize = (result: { ok: boolean; error?: string; snapshot?: any }) => {
           if (resolved) return;
@@ -123,19 +124,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
         };
 
         if (create) {
-          networkClient.createRoom(roomCode, playerName, finalize);
+          networkClient.createRoom(playerName, finalize);
         } else {
-          networkClient.joinRoom(roomCode, playerName, finalize);
+          networkClient.joinRoom(params.roomCode!.trim().toUpperCase(), playerName, finalize);
         }
       });
 
       if (!response.ok || !response.snapshot) {
-        return { ok: false, error: response.error || 'Unable to connect room' };
+        return { ok: false, error: response.error || 'Unable to connect to room' };
       }
+
+      const roomCode = response.snapshot.roomCode;
 
       setMode('online');
       setRoom({
-        roomCode: response.snapshot.roomCode,
+        roomCode,
         playerName,
         serverUrl,
         mode: 'online',
@@ -174,11 +177,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
         setChatMessages(payload.chat || []);
       });
 
-      return { ok: true };
+      return { ok: true, roomCode };
     } catch (error: any) {
       return { ok: false, error: error?.message || 'Network error' };
     }
-  }, []);
+  }, [serverUrl]);
 
   const disconnectRoom = useCallback(() => {
     networkClient.offAll();
@@ -334,6 +337,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
         chatMessages,
         timerPaused,
         canUndo: pastStates.length > 0,
+        serverUrl,
+        setServerUrl,
         updateSettings,
         setMode,
         connectToRoom,

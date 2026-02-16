@@ -10,11 +10,12 @@
     "server": "node server/index.js"
   },
   "dependencies": {
-    "@react-native-community/slider": "4.5.6",
     "@react-native-async-storage/async-storage": "^1.23.1",
+    "@react-native-community/slider": "4.5.6",
     "cors": "^2.8.5",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",
+    "expo-clipboard": "~7.0.1",
     "expo-constants": "~17.0.0",
     "expo-haptics": "~14.0.0",
     "expo-linking": "~7.0.0",
