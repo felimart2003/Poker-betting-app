@@ -79,7 +79,3 @@ npx eas build --platform ios --profile preview
 │       ├── PotDisplay.tsx   # Pot & round info
 │       └── HandHistory.tsx  # Action log
 ```
-
-## License
-
-MIT
