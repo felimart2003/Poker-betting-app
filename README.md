@@ -4,15 +4,19 @@ A mobile poker chip tracking app for Android & iOS — no physical chips needed.
 
 ## Features
 
-- **2-8 Players** — Add your friends by name
+- **2-8+ Players** — Add players at setup or mid-game
 - **Chip Tracking** — Full chip count management per player
 - **Betting Actions** — Fold, Check, Call, Bet, Raise, All-In
 - **Pot Management** — Automatic pot tracking with split pot support
 - **Blind System** — Configurable small/big blinds
 - **Dealer Rotation** — Automatic dealer button advancement
 - **Betting Presets** — Quick bet buttons (½ pot, ¾ pot, pot, min, max)
-- **Hand History** — See a log of all actions
+- **Hand History** — Action log with round labels (pre-flop/flop/turn/river)
 - **Pass & Play** — One device, pass it around the table
+- **Online Room Mode** — Server-hosted room for multiple phones
+- **Turn Timer** — Optional decision countdown per player
+- **Undo + Admin Tools** — Undo last action, edit chip stacks, add players mid-game
+- **Hand Rankings Button** — In-game quick reference for all poker hands
 
 ## Getting Started
 
@@ -33,6 +37,18 @@ npx expo start
 ```
 
 Then scan the QR code with **Expo Go** (Android) or the Camera app (iOS).
+
+### Online Room Server (optional)
+
+Run this if you want everyone to connect with their own phone:
+
+```bash
+# in project root
+npm run server
+```
+
+Default server URL is `http://<your-lan-ip>:4000`.
+All phones must be on the same network unless you deploy this server publicly.
 
 ### Build for Production
 
@@ -58,7 +74,7 @@ npx eas build --platform ios --profile preview
 - **React Native** + **Expo** (SDK 52)
 - **Expo Router** (file-based navigation)
 - **TypeScript**
-- Pure local state — no backend required
+- Local state + optional Socket.IO room sync
 
 ## Project Structure
 

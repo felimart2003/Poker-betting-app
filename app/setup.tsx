@@ -26,7 +26,7 @@ const BLIND_PRESETS = [
 
 export default function SetupScreen() {
   const router = useRouter();
-  const { settings, updateSettings, initGame } = useGame();
+  const { settings, updateSettings, initGame, mode, room } = useGame();
   const [playerNames, setPlayerNames] = useState<string[]>(
     settings.playerNames.length >= 2
       ? [...settings.playerNames]
@@ -208,6 +208,33 @@ export default function SetupScreen() {
               </View>
             </View>
           </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Turn Timer (optional)</Text>
+            <Text style={styles.sectionDesc}>Set seconds per decision. 0 disables timer.</Text>
+            <View style={styles.customRow}>
+              <Text style={styles.customLabel}>Seconds:</Text>
+              <TextInput
+                style={styles.customInput}
+                value={settings.decisionTimerSeconds.toString()}
+                onChangeText={t => updateSettings({ decisionTimerSeconds: Math.max(0, parseInt(t) || 0) })}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+
+          {mode === 'online' && room && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Room: {room.roomCode}</Text>
+              <Text style={styles.sectionDesc}>Connected players: {room.connectedUsers.length}</Text>
+              {room.connectedUsers.map(user => (
+                <View key={user.socketId} style={styles.playerRow}>
+                  <View style={styles.playerDot} />
+                  <Text style={styles.playerInput}>{user.playerName}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           {/* Start Game */}
           <TouchableOpacity style={styles.startBtn} onPress={startGame}>

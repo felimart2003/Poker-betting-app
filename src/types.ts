@@ -24,6 +24,8 @@ export interface GameState {
   bigBlind: number;
   smallBlind: number;
   dealerIndex: number;
+  smallBlindIndex: number;
+  bigBlindIndex: number;
   currentPlayerIndex: number;
   round: BettingRound;
   roundNumber: number;
@@ -44,8 +46,19 @@ export interface GameSettings {
   bigBlind: number;
   smallBlind: number;
   playerNames: string[];
+  decisionTimerSeconds: number;
   blindIncreaseInterval: number; // 0 = no increase, otherwise number of hands
   blindIncreaseAmount: number;
+}
+
+export type GameMode = 'local' | 'online';
+
+export interface RoomState {
+  roomCode: string;
+  playerName: string;
+  serverUrl: string;
+  mode: GameMode;
+  connectedUsers: Array<{ socketId: string; playerName: string }>;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -53,6 +66,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   bigBlind: 20,
   smallBlind: 10,
   playerNames: ['Player 1', 'Player 2'],
+  decisionTimerSeconds: 0,
   blindIncreaseInterval: 0,
   blindIncreaseAmount: 0,
 };

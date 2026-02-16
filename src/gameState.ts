@@ -28,6 +28,8 @@ export function createGame(settings: GameSettings): GameState {
     bigBlind: settings.bigBlind,
     smallBlind: settings.smallBlind,
     dealerIndex: 0,
+    smallBlindIndex: 0,
+    bigBlindIndex: 0,
     currentPlayerIndex: 0,
     round: 'pre-flop',
     roundNumber: 1,
@@ -71,6 +73,8 @@ export function startNewHand(game: GameState): GameState {
   // Post blinds
   const sbIndex = getNextActivePlayerIndex(newGame, newGame.dealerIndex);
   const bbIndex = getNextActivePlayerIndex(newGame, sbIndex);
+  newGame.smallBlindIndex = sbIndex;
+  newGame.bigBlindIndex = bbIndex;
 
   // Small blind
   const sbAmount = Math.min(newGame.smallBlind, newGame.players[sbIndex].chips);
@@ -374,6 +378,36 @@ export function isGameOver(game: GameState): boolean {
 export function getWinner(game: GameState): Player | null {
   const playersWithChips = game.players.filter(p => p.chips > 0);
   return playersWithChips.length === 1 ? playersWithChips[0] : null;
+}
+
+export function addPlayerToGame(game: GameState, name: string, chips: number): GameState {
+  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
+  newGame.players.push({
+    id: generateId(),
+    name,
+    chips: Math.max(0, chips),
+    currentBet: 0,
+    isFolded: false,
+    isAllIn: false,
+    isDealer: false,
+    isActive: chips > 0,
+    isTurn: false,
+  });
+  return newGame;
+}
+
+export function editPlayerChips(game: GameState, playerId: string, chips: number): GameState {
+  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
+  const player = newGame.players.find(p => p.id === playerId);
+  if (!player) return newGame;
+
+  player.chips = Math.max(0, Math.floor(chips));
+  if (player.chips === 0 && !player.isAllIn) {
+    player.isActive = false;
+  } else if (player.chips > 0) {
+    player.isActive = true;
+  }
+  return newGame;
 }
 
 export function formatChips(amount: number): string {

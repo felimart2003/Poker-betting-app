@@ -1,20 +1,43 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
+  TextInput,
+  ScrollView,
+  Alert,
 } from 'react-native';
+import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
+import { useGame } from '../src/GameContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { connectToRoom } = useGame();
+  const [roomCode, setRoomCode] = useState('POKER1');
+  const [playerName, setPlayerName] = useState('Player');
+  const [serverUrl, setServerUrl] = useState('http://192.168.0.11:4000');
+
+  const handleOnline = async (create: boolean) => {
+    const res = await connectToRoom({
+      roomCode,
+      playerName,
+      serverUrl,
+      create,
+    });
+    if (!res.ok) {
+      Alert.alert('Connection failed', res.error || 'Could not connect to room.');
+      return;
+    }
+    router.push(create ? '/setup' : '/game');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         {/* Logo area */}
         <View style={styles.logoSection}>
           <Text style={styles.logoEmoji}>🃏</Text>
@@ -40,10 +63,58 @@ export default function HomeScreen() {
           >
             <Text style={styles.primaryBtnText}>New Game</Text>
           </TouchableOpacity>
+
+          <View style={styles.onlineCard}>
+            <Text style={styles.onlineTitle}>Online Room (server-hosted)</Text>
+            <TextInput
+              style={styles.input}
+              value={serverUrl}
+              onChangeText={setServerUrl}
+              autoCapitalize="none"
+              placeholder="Server URL"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <TextInput
+              style={styles.input}
+              value={roomCode}
+              onChangeText={text => setRoomCode(text.toUpperCase())}
+              autoCapitalize="characters"
+              placeholder="Room Code"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <TextInput
+              style={styles.input}
+              value={playerName}
+              onChangeText={setPlayerName}
+              placeholder="Your Name"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <View style={styles.onlineButtons}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => handleOnline(true)}>
+                <Text style={styles.secondaryBtnText}>Create Room</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => handleOnline(false)}>
+                <Text style={styles.secondaryBtnText}>Join Room</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.rulesCard}>
+            <Text style={styles.rulesTitle}>Quick Poker Rules</Text>
+            <Text style={styles.rulesText}>• Each hand has 4 betting rounds: pre-flop, flop, turn, river.</Text>
+            <Text style={styles.rulesText}>• On your turn: fold, check, call, bet, raise, or go all-in.</Text>
+            <Text style={styles.rulesText}>• Best 5-card hand at showdown wins the pot.</Text>
+            <TouchableOpacity
+              style={styles.rulesLinkBtn}
+              onPress={() => Linking.openURL('https://www.wsop.com/poker-hands/')}
+            >
+              <Text style={styles.rulesLinkText}>Full poker rules</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <Text style={styles.version}>v1.0.0 • Made for poker nights</Text>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -63,8 +134,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   content: {
-    flex: 1,
-    justifyContent: 'center',
+    paddingTop: SPACING.xxl,
+    paddingBottom: SPACING.xxxl,
     paddingHorizontal: SPACING.xxl,
   },
   logoSection: {
@@ -114,6 +185,70 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: SPACING.md,
+  },
+  onlineCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  onlineTitle: {
+    color: COLORS.text,
+    fontSize: FONT_SIZES.md,
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: COLORS.background,
+    borderColor: COLORS.surfaceHighlight,
+    borderWidth: 1,
+    borderRadius: BORDER_RADIUS.md,
+    color: COLORS.text,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  onlineButtons: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: COLORS.felt,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+  },
+  secondaryBtnText: {
+    color: COLORS.text,
+    fontWeight: '700',
+  },
+  rulesCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    gap: SPACING.xs,
+  },
+  rulesTitle: {
+    color: COLORS.primary,
+    fontSize: FONT_SIZES.md,
+    fontWeight: '800',
+    marginBottom: SPACING.xs,
+  },
+  rulesText: {
+    color: COLORS.textSecondary,
+    fontSize: FONT_SIZES.sm,
+  },
+  rulesLinkBtn: {
+    marginTop: SPACING.sm,
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.surfaceHighlight,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full,
+  },
+  rulesLinkText: {
+    color: COLORS.info,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '700',
   },
   primaryBtn: {
     backgroundColor: COLORS.primary,
