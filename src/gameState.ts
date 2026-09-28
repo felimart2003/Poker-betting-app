@@ -1,424 +1,123 @@
-import { GameState, GameSettings, Player, BettingRound, BETTING_ROUNDS, SidePot } from './types';
-
-// Generate a simple unique ID
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
-}
-
+import { GameState, GameSettings, Player, BETTING_ROUNDS, SidePot } from './types';
+const copy = (game: GameState): GameState => JSON.parse(JSON.stringify(game));
+const id = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const validChips = (n: number) => Number.isSafeInteger(n) && n >= 0 && n <= 1000000000;
 export function createGame(settings: GameSettings): GameState {
-  const players: Player[] = settings.playerNames.map((name, index) => ({
-    id: generateId(),
-    name,
-    chips: settings.startingChips,
-    currentBet: 0,
-    isFolded: false,
-    isAllIn: false,
-    isDealer: index === 0,
-    isActive: true,
-    isTurn: false,
-  }));
-
-  const game: GameState = {
-    id: generateId(),
-    players,
-    pot: 0,
-    sidePots: [],
-    currentBet: 0,
-    minimumBet: settings.bigBlind,
-    bigBlind: settings.bigBlind,
-    smallBlind: settings.smallBlind,
-    dealerIndex: 0,
-    smallBlindIndex: 0,
-    bigBlindIndex: 0,
-    currentPlayerIndex: 0,
-    round: 'pre-flop',
-    roundNumber: 1,
-    isHandActive: false,
-    lastRaiseAmount: settings.bigBlind,
-    playersActedThisRound: [],
-  };
-
-  return game;
+  if (settings.playerNames.length < 2 || settings.playerNames.length > 8 ||
+      !validChips(settings.startingChips) || settings.startingChips < 1 ||
+      !validChips(settings.smallBlind) || settings.smallBlind < 1 ||
+      !validChips(settings.bigBlind) || settings.bigBlind < settings.smallBlind)
+    throw new Error('Use 2–8 players, positive whole-number chips, and a big blind at least as large as the small blind.');
+  return { id: id(), players: settings.playerNames.map((name,index) => ({id:id(),name:name.trim().slice(0,40)||`Player ${index+1}`,chips:settings.startingChips,currentBet:0,totalContribution:0,isFolded:false,isAllIn:false,isDealer:index===0,isActive:true,isTurn:false})),pot:0,sidePots:[],currentBet:0,minimumBet:settings.bigBlind,bigBlind:settings.bigBlind,smallBlind:settings.smallBlind,dealerIndex:0,smallBlindIndex:0,bigBlindIndex:0,currentPlayerIndex:0,round:'pre-flop',roundNumber:0,isHandActive:false,lastRaiseAmount:settings.bigBlind,playersActedThisRound:[] };
 }
-
+function next(game: GameState, from: number, canAct = true): number {
+  for (let i=1;i<=game.players.length;i++) {
+    const index=(from+i)%game.players.length,p=game.players[index];
+    if(p.isActive&&!p.isFolded&&(!canAct||!p.isAllIn))return index;
+  }
+  return from;
+}
+function contribute(game: GameState, player: Player, chips: number) {
+  const value=Math.min(player.chips,Math.max(0,chips));
+  player.chips-=value;player.currentBet+=value;player.totalContribution+=value;game.pot+=value;player.isAllIn=player.chips===0;
+}
 export function startNewHand(game: GameState): GameState {
-  const newGame = { ...game };
-  const activePlayers = newGame.players.filter(p => p.chips > 0);
-
-  if (activePlayers.length < 2) return newGame;
-
-  // Reset player states
-  newGame.players = newGame.players.map(p => ({
-    ...p,
-    currentBet: 0,
-    isFolded: p.chips <= 0,
-    isAllIn: false,
-    isTurn: false,
-    isActive: p.chips > 0,
-  }));
-
-  // Set dealer
-  newGame.players.forEach(p => (p.isDealer = false));
-  newGame.players[newGame.dealerIndex].isDealer = true;
-
-  // Reset game state
-  newGame.pot = 0;
-  newGame.sidePots = [];
-  newGame.currentBet = 0;
-  newGame.round = 'pre-flop';
-  newGame.isHandActive = true;
-  newGame.lastRaiseAmount = newGame.bigBlind;
-  newGame.playersActedThisRound = [];
-
-  // Post blinds
-  const sbIndex = getNextActivePlayerIndex(newGame, newGame.dealerIndex);
-  const bbIndex = getNextActivePlayerIndex(newGame, sbIndex);
-  newGame.smallBlindIndex = sbIndex;
-  newGame.bigBlindIndex = bbIndex;
-
-  // Small blind
-  const sbAmount = Math.min(newGame.smallBlind, newGame.players[sbIndex].chips);
-  newGame.players[sbIndex].chips -= sbAmount;
-  newGame.players[sbIndex].currentBet = sbAmount;
-  if (newGame.players[sbIndex].chips === 0) newGame.players[sbIndex].isAllIn = true;
-
-  // Big blind
-  const bbAmount = Math.min(newGame.bigBlind, newGame.players[bbIndex].chips);
-  newGame.players[bbIndex].chips -= bbAmount;
-  newGame.players[bbIndex].currentBet = bbAmount;
-  if (newGame.players[bbIndex].chips === 0) newGame.players[bbIndex].isAllIn = true;
-
-  newGame.currentBet = newGame.bigBlind;
-  newGame.pot = sbAmount + bbAmount;
-
-  // First to act is after big blind
-  newGame.currentPlayerIndex = getNextActivePlayerIndex(newGame, bbIndex);
-  newGame.players[newGame.currentPlayerIndex].isTurn = true;
-
-  return newGame;
+  if(game.isHandActive||game.players.filter(p=>p.chips>0).length<2)return game;
+  const g=copy(game);
+  if(g.roundNumber>0)g.dealerIndex=advanceDealer(g).dealerIndex;
+  if(g.players[g.dealerIndex].chips<=0)g.dealerIndex=advanceDealer(g).dealerIndex;
+  g.roundNumber++;g.players=g.players.map((p,i)=>({...p,currentBet:0,totalContribution:0,isFolded:p.chips<=0,isActive:p.chips>0,isAllIn:false,isTurn:false,isDealer:i===g.dealerIndex}));
+  g.pot=0;g.sidePots=[];g.currentBet=g.bigBlind;g.round='pre-flop';g.isHandActive=true;g.lastRaiseAmount=g.bigBlind;g.playersActedThisRound=[];
+  g.smallBlindIndex=g.players.filter(p=>p.isActive).length===2?g.dealerIndex:next(g,g.dealerIndex,false);
+  g.bigBlindIndex=next(g,g.smallBlindIndex,false);
+  contribute(g,g.players[g.smallBlindIndex],g.smallBlind);contribute(g,g.players[g.bigBlindIndex],g.bigBlind);
+  const acting=g.players.filter(p=>p.isActive&&!p.isAllIn);
+  if(acting.length===0||(acting.length===1&&acting[0].currentBet>=Math.max(...g.players.map(p=>p.currentBet))))return showdown(g);
+  g.currentPlayerIndex=next(g,g.bigBlindIndex);g.players[g.currentPlayerIndex].isTurn=true;return g;
 }
-
-function getNextActivePlayerIndex(game: GameState, fromIndex: number): number {
-  let index = (fromIndex + 1) % game.players.length;
-  let iterations = 0;
-  while (iterations < game.players.length) {
-    if (game.players[index].isActive && !game.players[index].isFolded && !game.players[index].isAllIn) {
-      return index;
-    }
-    index = (index + 1) % game.players.length;
-    iterations++;
-  }
-  // If no active player found, return next non-folded
-  index = (fromIndex + 1) % game.players.length;
-  iterations = 0;
-  while (iterations < game.players.length) {
-    if (!game.players[index].isFolded) {
-      return index;
-    }
-    index = (index + 1) % game.players.length;
-    iterations++;
-  }
-  return fromIndex;
-}
-
 export function getAvailableActions(game: GameState): string[] {
-  if (!game.isHandActive) return [];
-
-  const player = game.players[game.currentPlayerIndex];
-  if (!player || player.isFolded || player.isAllIn) return [];
-
-  const actions: string[] = ['fold'];
-  const toCall = game.currentBet - player.currentBet;
-
-  if (toCall === 0) {
-    actions.push('check');
-  } else {
-    actions.push('call');
-  }
-
-  if (player.chips > toCall) {
-    if (game.currentBet === 0) {
-      actions.push('bet');
-    } else {
-      actions.push('raise');
-    }
-  }
-
-  actions.push('all-in');
-
+  const p=game.players[game.currentPlayerIndex];
+  if(!game.isHandActive||game.round==='showdown'||!p||p.isFolded||p.isAllIn)return [];
+  const toCall=Math.max(0,game.currentBet-p.currentBet),actions=['fold',toCall===0?'check':'call'];
+  // A short all-in does not reopen raising for a player who already acted.
+  const canRaise=!game.playersActedThisRound.includes(p.id)&&game.players.some(other=>other.id!==p.id&&other.isActive&&!other.isFolded&&!other.isAllIn);
+  if(canRaise&&p.chips+p.currentBet>=getMinRaise(game))actions.push(game.currentBet===0?'bet':'raise');
+  if(canRaise||p.chips<=toCall)actions.push('all-in');
   return actions;
 }
-
-export function getCallAmount(game: GameState): number {
-  const player = game.players[game.currentPlayerIndex];
-  const toCall = Math.max(0, game.currentBet - player.currentBet);
-  return Math.min(toCall, player.chips);
-}
-
-export function getMinRaise(game: GameState): number {
-  const toCall = Math.max(0, game.currentBet - game.players[game.currentPlayerIndex].currentBet);
-  return toCall + Math.max(game.lastRaiseAmount, game.bigBlind);
-}
-
-export function performAction(
-  game: GameState,
-  action: string,
-  amount?: number
-): GameState {
-  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
-  const playerIndex = newGame.currentPlayerIndex;
-  const player = newGame.players[playerIndex];
-
-  switch (action) {
-    case 'fold':
-      player.isFolded = true;
-      break;
-
-    case 'check':
-      // No chips needed
-      break;
-
-    case 'call': {
-      const toCall = Math.max(0, newGame.currentBet - player.currentBet);
-      const callAmount = Math.min(toCall, player.chips);
-      player.chips -= callAmount;
-      player.currentBet += callAmount;
-      newGame.pot += callAmount;
-      if (player.chips === 0) player.isAllIn = true;
-      break;
-    }
-
-    case 'bet':
-    case 'raise': {
-      const minRaise = getMinRaise(newGame);
-      const rawBetAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : minRaise;
-      const safeBetAmount = Math.max(minRaise, Math.floor(rawBetAmount));
-      const totalBet = Math.min(safeBetAmount, player.chips + player.currentBet);
-      if (totalBet <= player.currentBet) {
-        break;
-      }
-      const chipsNeeded = totalBet - player.currentBet;
-      const actualChips = Math.min(chipsNeeded, player.chips);
-
-      newGame.lastRaiseAmount = totalBet - newGame.currentBet;
-      player.chips -= actualChips;
-      player.currentBet += actualChips;
-      newGame.pot += actualChips;
-      newGame.currentBet = player.currentBet;
-      if (player.chips === 0) player.isAllIn = true;
-
-      // Reset acted players since there's a raise
-      newGame.playersActedThisRound = [player.id];
-      break;
-    }
-
-    case 'all-in': {
-      const allInAmount = player.chips;
-      player.currentBet += allInAmount;
-      newGame.pot += allInAmount;
-      player.chips = 0;
-      player.isAllIn = true;
-
-      if (player.currentBet > newGame.currentBet) {
-        newGame.lastRaiseAmount = player.currentBet - newGame.currentBet;
-        newGame.currentBet = player.currentBet;
-        newGame.playersActedThisRound = [player.id];
-      }
-      break;
-    }
+export function getCallAmount(game: GameState): number {const p=game.players[game.currentPlayerIndex];return p?Math.min(p.chips,Math.max(0,game.currentBet-p.currentBet)):0;}
+/** Minimum total bet for this street, including chips already committed. */
+export function getMinRaise(game: GameState): number {return game.currentBet+Math.max(game.lastRaiseAmount,game.bigBlind);}
+export function performAction(game: GameState,action:string,amount?:number):GameState {
+  if(!getAvailableActions(game).includes(action))return game;
+  const g=copy(game),p=g.players[g.currentPlayerIndex],oldBet=g.currentBet;
+  if(action==='fold')p.isFolded=true;
+  else if(action==='call')contribute(g,p,getCallAmount(g));
+  else if(action==='all-in')contribute(g,p,p.chips);
+  else if(action==='bet'||action==='raise'){
+    if(amount!==undefined&&(!validChips(amount)||amount<getMinRaise(g)||amount>p.chips+p.currentBet))return game;
+    contribute(g,p,(amount??getMinRaise(g))-p.currentBet);
   }
-
-  if (action !== 'bet' && action !== 'raise') {
-    newGame.playersActedThisRound.push(player.id);
+  if(p.currentBet>oldBet){
+    const raise=p.currentBet-oldBet;g.currentBet=p.currentBet;
+    if(raise>=g.lastRaiseAmount){g.lastRaiseAmount=raise;g.playersActedThisRound=[];}
   }
-
-  player.isTurn = false;
-
-  // Check if hand is over (only one player remaining)
-  const remainingPlayers = newGame.players.filter(p => !p.isFolded && p.isActive);
-  if (remainingPlayers.length === 1) {
-    // Award pot to winner
-    remainingPlayers[0].chips += newGame.pot;
-    newGame.pot = 0;
-    newGame.isHandActive = false;
-    return newGame;
+  if(!g.playersActedThisRound.includes(p.id))g.playersActedThisRound.push(p.id);
+  g.players.forEach(p=>p.isTurn=false);
+  const remaining=getActivePlayers(g);
+  if(remaining.length===1){remaining[0].chips+=g.pot;g.pot=0;g.sidePots=[];g.isHandActive=false;return g;}
+  const acting=remaining.filter(p=>!p.isAllIn);
+  if(acting.length===0||(acting.length===1&&acting[0].currentBet>=g.currentBet))return showdown(g);
+  if(acting.every(p=>g.playersActedThisRound.includes(p.id)&&p.currentBet===g.currentBet))return advanceRound(g);
+  g.currentPlayerIndex=next(g,g.currentPlayerIndex);g.players[g.currentPlayerIndex].isTurn=true;return g;
+}
+function advanceRound(g:GameState):GameState {
+  const index=BETTING_ROUNDS.indexOf(g.round);
+  if(index>=3)return showdown(g);
+  g.round=BETTING_ROUNDS[index+1];g.currentBet=0;g.lastRaiseAmount=g.bigBlind;g.playersActedThisRound=[];
+  g.players.forEach(p=>{p.currentBet=0;p.isTurn=false;});
+  g.currentPlayerIndex=next(g,g.dealerIndex);g.players[g.currentPlayerIndex].isTurn=true;return g;
+}
+function showdown(g:GameState):GameState {
+  g.round='showdown';g.players.forEach(p=>p.isTurn=false);
+  const levels=[...new Set(g.players.map(p=>p.totalContribution).filter(v=>v>0))].sort((a,b)=>a-b);
+  let previous=0;g.sidePots=[];
+  for(const level of levels){
+    const contributors=g.players.filter(p=>p.totalContribution>=level),amount=(level-previous)*contributors.length;
+    const eligible=contributors.filter(p=>p.isActive&&!p.isFolded);previous=level;
+    // Uncalled overbets are returned, rather than becoming an unwinnable side pot.
+    if(contributors.length===1){contributors[0].chips+=amount;g.pot-=amount;continue;}
+    if(eligible.length===0){const pot=g.sidePots[g.sidePots.length-1];if(pot)pot.amount+=amount;continue;}
+    const last=g.sidePots[g.sidePots.length-1];
+    if(last&&last.eligiblePlayerIds.join(',')===eligible.map(p=>p.id).join(','))last.amount+=amount;
+    else g.sidePots.push({amount,eligiblePlayerIds:eligible.map(p=>p.id)});
   }
-
-  // Check if round is over
-  const actingPlayers = newGame.players.filter(
-    p => p.isActive && !p.isFolded && !p.isAllIn
-  );
-
-  const allActed = actingPlayers.every(p => newGame.playersActedThisRound.includes(p.id));
-  const allMatched = actingPlayers.every(p => p.currentBet === newGame.currentBet);
-
-  if (allActed && allMatched && actingPlayers.length > 0) {
-    return advanceRound(newGame);
-  }
-
-  if (actingPlayers.length === 0) {
-    // All players are all-in or folded, advance to showdown
-    return advanceToShowdown(newGame);
-  }
-
-  // Move to next player
-  newGame.currentPlayerIndex = getNextActivePlayerIndex(newGame, playerIndex);
-  while (
-    newGame.players[newGame.currentPlayerIndex].isFolded ||
-    newGame.players[newGame.currentPlayerIndex].isAllIn
-  ) {
-    newGame.currentPlayerIndex = getNextActivePlayerIndex(newGame, newGame.currentPlayerIndex);
-    if (newGame.currentPlayerIndex === playerIndex) break;
-  }
-  newGame.players[newGame.currentPlayerIndex].isTurn = true;
-
-  return newGame;
+  return g;
 }
-
-function advanceRound(game: GameState): GameState {
-  const newGame = { ...game };
-  const currentRoundIndex = BETTING_ROUNDS.indexOf(newGame.round);
-
-  if (currentRoundIndex >= 3) {
-    // River is done - go to showdown
-    return advanceToShowdown(newGame);
-  }
-
-  // Move to next round
-  newGame.round = BETTING_ROUNDS[currentRoundIndex + 1] as BettingRound;
-  newGame.currentBet = 0;
-  newGame.lastRaiseAmount = newGame.bigBlind;
-  newGame.playersActedThisRound = [];
-
-  // Reset current bets
-  newGame.players.forEach(p => {
-    p.currentBet = 0;
-    p.isTurn = false;
-  });
-
-  // Check if only one player can still act
-  const canAct = newGame.players.filter(p => p.isActive && !p.isFolded && !p.isAllIn);
-  if (canAct.length <= 1) {
-    if (newGame.round !== 'showdown') {
-      return advanceRound(newGame);
-    }
-    return advanceToShowdown(newGame);
-  }
-
-  // First to act after dealer
-  newGame.currentPlayerIndex = getNextActivePlayerIndex(newGame, newGame.dealerIndex);
-  // Skip folded/all-in players
-  let safety = 0;
-  while (
-    (newGame.players[newGame.currentPlayerIndex].isFolded ||
-      newGame.players[newGame.currentPlayerIndex].isAllIn) &&
-    safety < newGame.players.length
-  ) {
-    newGame.currentPlayerIndex = getNextActivePlayerIndex(newGame, newGame.currentPlayerIndex);
-    safety++;
-  }
-  newGame.players[newGame.currentPlayerIndex].isTurn = true;
-
-  return newGame;
+/** Resolve one pot at a time, so each side pot can have a different winner. */
+export function awardPot(game:GameState,winnerIds:string[]):GameState {
+  if(!game.isHandActive||game.round!=='showdown')return game;
+  const pot=game.sidePots[0];if(!pot||winnerIds.length===0)return game;
+  const ids=[...new Set(winnerIds)];if(ids.some(id=>!pot.eligiblePlayerIds.includes(id)))return game;
+  const g=copy(game),share=Math.floor(pot.amount/ids.length);let remainder=pot.amount%ids.length;
+  // Odd chips go clockwise from the dealer among tied winners.
+  for(let n=1;n<=g.players.length;n++){const p=g.players[(g.dealerIndex+n)%g.players.length];if(ids.includes(p.id)){p.chips+=share+(remainder>0?1:0);remainder--;}}
+  g.pot-=pot.amount;g.sidePots.shift();g.isHandActive=g.sidePots.length>0;return g;
 }
-
-function advanceToShowdown(game: GameState): GameState {
-  const newGame = { ...game };
-  newGame.round = 'showdown';
-  newGame.isHandActive = true; // Keep active for pot awarding
-  newGame.players.forEach(p => (p.isTurn = false));
-  return newGame;
+export function advanceDealer(game:GameState):GameState {
+  if(game.isHandActive)return game;const g=copy(game);
+  for(let i=1;i<=g.players.length;i++){const index=(g.dealerIndex+i)%g.players.length;if(g.players[index].chips>0){g.dealerIndex=index;break;}}
+  g.players.forEach((p,i)=>p.isDealer=i===g.dealerIndex);return g;
 }
-
-export function awardPot(game: GameState, winnerIds: string[]): GameState {
-  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
-
-  if (winnerIds.length === 0) return newGame;
-
-  // Split pot among winners
-  const share = Math.floor(newGame.pot / winnerIds.length);
-  const remainder = newGame.pot % winnerIds.length;
-
-  winnerIds.forEach((id, index) => {
-    const player = newGame.players.find(p => p.id === id);
-    if (player) {
-      player.chips += share + (index === 0 ? remainder : 0);
-    }
-  });
-
-  newGame.pot = 0;
-  newGame.isHandActive = false;
-
-  return newGame;
+export function getActivePlayers(game:GameState):Player[]{return game.players.filter(p=>p.isActive&&!p.isFolded);}
+export function getEliminatedPlayers(game:GameState):Player[]{return game.players.filter(p=>p.chips<=0&&!p.isAllIn);}
+export function isGameOver(game:GameState):boolean{return !game.isHandActive&&game.roundNumber>0&&game.players.filter(p=>p.chips>0).length<=1;}
+export function getWinner(game:GameState):Player|null{return isGameOver(game)?game.players.find(p=>p.chips>0)||null:null;}
+export function addPlayerToGame(game:GameState,name:string,chips:number):GameState {
+  if(game.players.length>=8||!name.trim()||!validChips(chips)||chips===0)return game;
+  const g=copy(game);g.players.push({id:id(),name:name.trim().slice(0,40),chips,currentBet:0,totalContribution:0,isFolded:game.isHandActive,isActive:!game.isHandActive,isAllIn:false,isDealer:false,isTurn:false});return g;
 }
-
-export function advanceDealer(game: GameState): GameState {
-  const newGame = { ...game };
-  const activePlayers = newGame.players.filter(p => p.chips > 0);
-
-  if (activePlayers.length < 2) return newGame;
-
-  // Find next dealer among players with chips
-  let nextDealer = (newGame.dealerIndex + 1) % newGame.players.length;
-  while (newGame.players[nextDealer].chips <= 0) {
-    nextDealer = (nextDealer + 1) % newGame.players.length;
-  }
-
-  newGame.dealerIndex = nextDealer;
-  newGame.roundNumber++;
-
-  return newGame;
+export function editPlayerChips(game:GameState,playerId:string,chips:number):GameState {
+  if(game.isHandActive||!validChips(chips))return game;const g=copy(game),p=g.players.find(p=>p.id===playerId);if(p){p.chips=chips;p.isActive=chips>0;p.isAllIn=false;}return g;
 }
-
-export function getActivePlayers(game: GameState): Player[] {
-  return game.players.filter(p => !p.isFolded && p.isActive);
-}
-
-export function getEliminatedPlayers(game: GameState): Player[] {
-  return game.players.filter(p => p.chips <= 0 && !p.isAllIn);
-}
-
-export function isGameOver(game: GameState): boolean {
-  return game.players.filter(p => p.chips > 0).length <= 1;
-}
-
-export function getWinner(game: GameState): Player | null {
-  const playersWithChips = game.players.filter(p => p.chips > 0);
-  return playersWithChips.length === 1 ? playersWithChips[0] : null;
-}
-
-export function addPlayerToGame(game: GameState, name: string, chips: number): GameState {
-  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
-  newGame.players.push({
-    id: generateId(),
-    name,
-    chips: Math.max(0, chips),
-    currentBet: 0,
-    isFolded: false,
-    isAllIn: false,
-    isDealer: false,
-    isActive: chips > 0,
-    isTurn: false,
-  });
-  return newGame;
-}
-
-export function editPlayerChips(game: GameState, playerId: string, chips: number): GameState {
-  const newGame = JSON.parse(JSON.stringify(game)) as GameState;
-  const player = newGame.players.find(p => p.id === playerId);
-  if (!player) return newGame;
-
-  player.chips = Math.max(0, Math.floor(chips));
-  if (player.chips === 0 && !player.isAllIn) {
-    player.isActive = false;
-  } else if (player.chips > 0) {
-    player.isActive = true;
-  }
-  return newGame;
-}
-
-export function formatChips(amount: number): string {
-  if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
-  if (amount >= 10000) return `${(amount / 1000).toFixed(1)}K`;
-  return amount.toLocaleString();
-}
+export function formatChips(amount:number):string {if(amount>=1000000)return `${(amount/1000000).toFixed(1)}M`;if(amount>=10000)return `${(amount/1000).toFixed(1)}K`;return amount.toLocaleString();}

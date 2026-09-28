@@ -1,97 +1,66 @@
-# Poker Chips 🃏
+# Poker Chips
 
-A mobile poker chip tracking app for Android & iOS — no physical chips needed. Built with React Native + Expo.
+A responsive poker chip tracker for games played with a physical deck. Track bets, blinds, side pots and player stacks on one shared device, without signing in.
+
+**[Open the live demo](https://felimart2003.github.io/Poker-betting-app/)** · [Source](https://github.com/felimart2003/Poker-betting-app)
+
+![Poker table](docs/table.png)
 
 ## Features
 
-- **2-8+ Players** — Add players at setup or mid-game
-- **Chip Tracking** — Full chip count management per player
-- **Betting Actions** — Fold, Check, Call, Bet, Raise, All-In
-- **Pot Management** — Automatic pot tracking with split pot support
-- **Blind System** — Configurable small/big blinds
-- **Dealer Rotation** — Automatic dealer button advancement
-- **Betting Presets** — Quick bet buttons (½ pot, ¾ pot, pot, min, max)
-- **Hand History** — Action log with round labels (pre-flop/flop/turn/river)
-- **Pass & Play** — One device, pass it around the table
-- **Online Room Mode** — Server-hosted room for multiple phones
-- **Turn Timer** — Optional decision countdown per player
-- **Undo + Admin Tools** — Undo last action, edit chip stacks, add players mid-game
-- **Hand Rankings Button** — In-game quick reference for all poker hands
+- Set up 2–8 players, starting stacks, blinds and an optional turn timer.
+- Fold, check, call, raise and go all-in, with legal-action validation.
+- Heads-up and multiway dealer/blind rotation; automatic betting-round progression.
+- Contribution-based side pots, eligible winners and split payouts that preserve every chip.
+- Undo recent actions, view hand history, and add players between hands.
+- Local autosave and resume across browser reloads.
+- Optional Socket.IO rooms: one trusted host controls the scoreboard while guests watch and chat.
 
-## Getting Started
+This is a scoreboard, not an online poker casino. It does not deal or evaluate cards, process payments, or manage real money. Players determine winners using their physical cards.
 
-### Prerequisites
+## Run locally
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Expo CLI](https://docs.expo.dev/get-started/installation/)
-- Expo Go app on your phone (for testing)
+Use Node.js 22.13+ (or Node 24) and npm.
 
-### Install & Run
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npx expo start
+```sh
+npm ci
+npm run web
 ```
 
-Then scan the QR code with **Expo Go** (Android) or the Camera app (iOS).
+Open the URL printed by Expo. For native development, run `npm start` with a compatible Expo Go/development client; Android/iOS release binaries are not included or verified.
 
-### Online Room Server (optional)
+```sh
+npm run typecheck
+npm test
+npm run build
+```
 
-Run this if you want everyone to connect with their own phone:
+The build exports a static web application to `dist/`. GitHub Actions runs type checks, engine and socket integration tests, builds with the repository URL prefix, then deploys to GitHub Pages. Pushes to `main` update the demo. Pages must use **GitHub Actions** as its source.
 
-```bash
-# in project root
+## Architecture
+
+- **React Native + React Native Web**, **Expo SDK 57**, **Expo Router**, **TypeScript**.
+- `src/gameState.ts`: immutable betting engine, chip accounting, side pots and legal actions.
+- `src/GameContext.tsx`: orchestration, bounded undo/history, local AsyncStorage persistence and optional room synchronization.
+- `app/`: home, setup and table screens; reusable controls live in `src/components/`.
+- `server/index.js`: optional Express/Socket.IO room relay with input limits, origin allowlisting, membership checks, host-only state mutation and server-derived chat identities.
+- `tools/test.cjs`: 12 engine checks, including 100 generated hands for chip conservation and termination.
+- `server/server.test.cjs`: real socket integration coverage for membership, authorization, validation, host transfer, cleanup and origin rejection.
+
+## Optional local room server
+
+The public demo is fully usable in local pass-and-play mode. **No public room backend is deployed.** Rooms need a separately running server:
+
+```sh
 npm run server
 ```
 
-Default server URL is `http://<your-lan-ip>:4000`.
-All phones must be on the same network unless you deploy this server publicly.
+Copy `.env.example` to `.env` for Expo's optional public server URL. Configure `PORT` and `ALLOWED_ORIGINS` in the server process environment; Node does not automatically load this file for `npm run server`. The default relay port is 4000. Enter its URL under the home screen's optional room settings. For LAN use, use your computer's LAN address and allow the exact browser origin. For a public HTTPS frontend, any separately hosted backend must also use HTTPS.
 
-### Build for Production
+Rooms are ephemeral and disappear when their last member leaves or the server restarts. Room codes are shared access codes; there are no user accounts. The host is trusted to manage scores and host authority transfers on disconnect. This relay is intended for friends on a trusted network, not adversarial or real-money play. Do not expose it as a production multiplayer service without authentication, per-IP limits and persistent storage.
 
-```bash
-# Android APK
-npx eas build --platform android --profile preview
+## Privacy and security
 
-# iOS (requires Apple Developer account)
-npx eas build --platform ios --profile preview
-```
+The local demo stores table state in your browser only. Anyone sharing that browser profile can see the saved table; clearing site storage removes it. No private credentials belong in `EXPO_PUBLIC_*` variables: those values are bundled publicly. `.env`, generated builds, dependencies and tool output are ignored by Git.
 
-## How to Play
-
-1. **New Game** → Set player names, starting chips, and blinds
-2. **Deal Hand** → Blinds are posted automatically
-3. **Take Turns** → Pass the phone to the active player
-4. **Bet/Fold/Call** → Use the action buttons at the bottom
-5. **Showdown** → Tap the winner(s) to award the pot
-6. **Next Hand** → Dealer rotates and a new hand begins
-
-## Tech Stack
-
-- **React Native** + **Expo** (SDK 52)
-- **Expo Router** (file-based navigation)
-- **TypeScript**
-- Local state + optional Socket.IO room sync
-
-## Project Structure
-
-```
-├── app/
-│   ├── _layout.tsx        # Root layout + GameProvider
-│   ├── index.tsx           # Home screen
-│   ├── setup.tsx           # Game setup screen
-│   └── game.tsx            # Main game table
-├── src/
-│   ├── types.ts            # TypeScript types
-│   ├── theme.ts            # Colors, spacing, fonts
-│   ├── gameState.ts        # Core game logic
-│   ├── GameContext.tsx      # React context for state
-│   └── components/
-│       ├── PlayerCard.tsx   # Player display card
-│       ├── BettingControls.tsx  # Bet/fold/call UI
-│       ├── PotDisplay.tsx   # Pot & round info
-│       └── HandHistory.tsx  # Action log
-```
+The dependency lockfile is committed. Security overrides pin patched transitive packages, including the URI decoder used by Expo Router; `npm audit` reported zero known vulnerabilities when verified. Continue to run audits as advisories change.

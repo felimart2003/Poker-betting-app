@@ -12,15 +12,17 @@ import {
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
+import { notify } from '../src/alerts';
 import { useGame } from '../src/GameContext';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { connectToRoom, setMode, disconnectRoom, serverUrl, setServerUrl } = useGame();
+  const { game, connectToRoom, setMode, disconnectRoom, serverUrl, setServerUrl } = useGame();
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [showServerSettings, setShowServerSettings] = useState(false);
+  const [showOnline, setShowOnline] = useState(false);
 
   const handleCreate = async () => {
     if (isConnecting) return;
@@ -29,7 +31,7 @@ export default function HomeScreen() {
     const res = await connectToRoom({ playerName: name, create: true });
     setIsConnecting(false);
     if (!res.ok) {
-      Alert.alert('Connection failed', res.error || 'Could not create room.');
+      notify('Connection failed', res.error || 'Could not create room.');
       return;
     }
     // Room code is now in the context (room.roomCode) — navigate to setup
@@ -41,14 +43,14 @@ export default function HomeScreen() {
     const name = playerName.trim() || 'Player';
     const code = joinCode.trim().toUpperCase();
     if (!code) {
-      Alert.alert('Enter Room Code', 'Type the room code shared by the host.');
+      notify('Enter Room Code', 'Type the room code shared by the host.');
       return;
     }
     setIsConnecting(true);
     const res = await connectToRoom({ playerName: name, roomCode: code, create: false });
     setIsConnecting(false);
     if (!res.ok) {
-      Alert.alert('Join failed', res.error || 'Could not join room.');
+      notify('Join failed', res.error || 'Could not join room.');
       return;
     }
     router.push('/game');
@@ -71,9 +73,26 @@ export default function HomeScreen() {
           <FeatureItem icon="👥" text="2-8 players" />
           <FeatureItem icon="🪙" text="Track chips & bets" />
           <FeatureItem icon="🔄" text="Auto blinds & dealer" />
-          <FeatureItem icon="🌐" text="Online multiplayer" />
+          <FeatureItem icon="✓" text="Auto-saved locally" />
         </View>
 
+        {/* Offline */}
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={() => {
+            disconnectRoom();
+            setMode('local');
+            router.push('/setup');
+          }}
+        >
+          <Text style={styles.primaryBtnText}>Start a local table</Text>
+        </TouchableOpacity>
+
+        {!!game && <TouchableOpacity style={styles.joinBtn} onPress={() => router.push('/game')}><Text style={styles.joinBtnText}>Resume saved table →</Text></TouchableOpacity>}
+        <Text style={styles.cardDesc}>Play with a physical deck. This app tracks chips and betting; it does not deal cards or handle real money.</Text>
+        <TouchableOpacity style={styles.offlineBtn} onPress={() => setShowOnline(value => !value)}><Text style={styles.offlineBtnText}>{showOnline ? 'Hide' : 'Open'} optional online room settings</Text></TouchableOpacity>
+        {showOnline && <>
+        <Text style={styles.cardDesc}>Online rooms need a separately running server. The host controls betting; guests watch and chat. The public demo works immediately in local mode.</Text>
         {/* Name Input */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Your Name</Text>
@@ -121,18 +140,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Offline */}
-        <TouchableOpacity
-          style={styles.offlineBtn}
-          onPress={() => {
-            disconnectRoom();
-            setMode('local');
-            router.push('/setup');
-          }}
-        >
-          <Text style={styles.offlineBtnText}>Offline Pass & Play</Text>
-        </TouchableOpacity>
-
         {/* Server Settings (collapsible) */}
         <TouchableOpacity
           style={styles.settingsToggle}
@@ -161,6 +168,7 @@ export default function HomeScreen() {
           </View>
         )}
 
+        </>}
         {/* Quick Rules */}
         <View style={styles.rulesCard}>
           <Text style={styles.rulesTitle}>Quick Poker Rules</Text>
@@ -196,6 +204,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   content: {
+    width: '100%', maxWidth: 720, alignSelf: 'center',
     paddingTop: SPACING.xxl,
     paddingBottom: SPACING.xxxl,
     paddingHorizontal: SPACING.xxl,

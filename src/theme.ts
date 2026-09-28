@@ -25,7 +25,7 @@ export const COLORS = {
   // Text
   text: '#f0f6fc',
   textSecondary: '#8b949e',
-  textMuted: '#484f58',
+  textMuted: '#8a959f',
 
   // Player colors
   playerColors: [

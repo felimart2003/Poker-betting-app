@@ -15,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
+import { notify } from '../src/alerts';
 import { useGame } from '../src/GameContext';
 
 const CHIP_PRESETS = [500, 1000, 2000, 5000, 10000];
@@ -37,7 +38,7 @@ export default function SetupScreen() {
 
   const addPlayer = () => {
     if (playerNames.length >= 8) {
-      Alert.alert('Max Players', 'Maximum 8 players allowed.');
+      notify('Max Players', 'Maximum 8 players allowed.');
       return;
     }
     setPlayerNames([...playerNames, `Player ${playerNames.length + 1}`]);
@@ -45,7 +46,7 @@ export default function SetupScreen() {
 
   const removePlayer = (index: number) => {
     if (playerNames.length <= 2) {
-      Alert.alert('Min Players', 'Need at least 2 players.');
+      notify('Min Players', 'Need at least 2 players.');
       return;
     }
     setPlayerNames(playerNames.filter((_, i) => i !== index));
@@ -59,17 +60,11 @@ export default function SetupScreen() {
 
   const startGame = () => {
     const validNames = playerNames.map((n, i) => n.trim() || `Player ${i + 1}`);
-    updateSettings({ playerNames: validNames });
-    setTimeout(() => {
-      initGame();
+    try {
+      initGame({ playerNames: validNames });
       router.replace('/game');
-    }, 50);
+    } catch (error) { notify('Check your settings', error instanceof Error ? error.message : 'Invalid settings.'); }
   };
-
-  // Sync settings with playerNames
-  React.useEffect(() => {
-    updateSettings({ playerNames });
-  }, [playerNames]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -88,7 +83,7 @@ export default function SetupScreen() {
               style={styles.roomCodeBanner}
               onPress={() => {
                 Clipboard.setStringAsync(room.roomCode);
-                Alert.alert('Copied!', `Room code ${room.roomCode} copied to clipboard.`);
+                notify('Copied!', `Room code ${room.roomCode} copied to clipboard.`);
               }}
               activeOpacity={0.7}
             >
@@ -292,6 +287,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scrollContent: {
     padding: SPACING.lg,
+    width: '100%', maxWidth: 720, alignSelf: 'center',
   },
   section: {
     marginBottom: SPACING.xxl,

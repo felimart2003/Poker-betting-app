@@ -5,6 +5,7 @@ export interface Player {
   name: string;
   chips: number;
   currentBet: number;
+  totalContribution: number;
   isFolded: boolean;
   isAllIn: boolean;
   isDealer: boolean;
@@ -65,6 +66,7 @@ export interface RoomState {
   playerName: string;
   serverUrl: string;
   mode: GameMode;
+  hostSocketId: string | null;
   connectedUsers: Array<{ socketId: string; playerName: string }>;
   timerPaused: boolean;
 }

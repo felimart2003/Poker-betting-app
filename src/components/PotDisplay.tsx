@@ -34,7 +34,7 @@ export function PotDisplay({ game }: PotDisplayProps) {
         </View>
         {game.currentBet > 0 && (
           <View style={styles.infoPill}>
-            <Text style={styles.infoLabel}>To Call</Text>
+            <Text style={styles.infoLabel}>Table Bet</Text>
             <Text style={styles.infoValue}>{formatChips(game.currentBet)}</Text>
           </View>
         )}

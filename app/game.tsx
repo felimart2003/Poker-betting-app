@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Dimensions,
+  useWindowDimensions,
+  Platform,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -11,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { notify } from '../src/alerts';
 import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
 import { useGame } from '../src/GameContext';
@@ -54,6 +56,7 @@ export default function GameScreen() {
     mode,
     room,
     canUndo,
+    canControl,
     history,
     chatMessages,
     timerPaused,
@@ -86,7 +89,7 @@ export default function GameScreen() {
   const isHandDone = !!game && !game.isHandActive;
   const currentPlayer = game ? game.players[game.currentPlayerIndex] : null;
   const hasDecisionTimer = settings.decisionTimerSeconds > 0;
-  const shouldRunTimer = !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown && !timerPaused;
+  const shouldRunTimer = canControl && !!game && settings.decisionTimerSeconds > 0 && game.isHandActive && !isShowdown && !timerPaused;
 
   useEffect(() => {
     if (!game || !shouldRunTimer) {
@@ -118,7 +121,8 @@ export default function GameScreen() {
     doAction,
   ]);
 
-  const tableSeatWidth = Dimensions.get('window').width - SPACING.md * 2;
+  const { width } = useWindowDimensions();
+  const tableSeatWidth = Math.min(width, 860) - SPACING.md * 2;
   const tableSeatHeight = 340;
   const seatPositions = useMemo(() => {
     if (!game) return [];
@@ -140,7 +144,7 @@ export default function GameScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <Text style={styles.emptyText}>No game in progress</Text>
+          <Text style={styles.emptyText}>{mode === 'online' ? 'Waiting for the host to start the game…' : 'No game in progress'}</Text>
           <TouchableOpacity style={styles.goBackBtn} onPress={() => router.replace('/')}>
             <Text style={styles.goBackText}>Go Home</Text>
           </TouchableOpacity>
@@ -155,7 +159,7 @@ export default function GameScreen() {
 
   const confirmWinners = () => {
     if (selectedWinners.length === 0) {
-      Alert.alert('Select Winner', 'Tap winner seat(s), then confirm.');
+      notify('Select Winner', 'Tap winner seat(s), then confirm.');
       return;
     }
     awardToWinners(selectedWinners);
@@ -163,13 +167,14 @@ export default function GameScreen() {
   };
 
   const handleNewHand = () => {
-    nextDealer();
-    setTimeout(() => {
-      dealNewHand();
-    }, 50);
+    dealNewHand();
   };
 
   const handleQuit = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('End this game?')) { resetGame(); router.replace('/'); }
+      return;
+    }
     Alert.alert('End Game', 'Are you sure you want to end this game?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -186,7 +191,7 @@ export default function GameScreen() {
   const submitAddPlayer = () => {
     const safeName = newPlayerName.trim();
     if (!safeName) {
-      Alert.alert('Name required', 'Enter a player name.');
+      notify('Name required', 'Enter a player name.');
       return;
     }
     addPlayerMidgame(safeName, Math.max(0, parseInt(newPlayerChips, 10) || 0));
@@ -219,7 +224,7 @@ export default function GameScreen() {
             {isShowdown ? '🏆 Select Winner' : isHandDone ? 'Hand Complete' : `${currentPlayer?.name || 'Player'}\'s Turn`}
           </Text>
           {mode === 'online' && room && (
-            <Text style={styles.roomText}>Room {room.roomCode} • {room.connectedUsers.length} online</Text>
+            <Text style={styles.roomText}>Room {room.roomCode} • {room.connectedUsers.length} online • {canControl ? 'Host controls' : 'Viewing host table'}</Text>
           )}
         </View>
         <TouchableOpacity onPress={() => setShowHands(true)}>
@@ -266,7 +271,7 @@ export default function GameScreen() {
                 <TouchableOpacity
                   key={player.id}
                   activeOpacity={0.85}
-                  onPress={isShowdown && !player.isFolded && player.isActive ? () => toggleWinner(player.id) : undefined}
+                  onPress={canControl && isShowdown && game.sidePots[0]?.eligiblePlayerIds.includes(player.id) ? () => toggleWinner(player.id) : undefined}
                   style={[
                     styles.seat,
                     { left: pos?.left ?? 0, top: pos?.top ?? 0 },
@@ -292,7 +297,7 @@ export default function GameScreen() {
           </View>
         </View>
 
-        {!game.isHandActive && !gameOver && game.roundNumber <= 1 && game.pot === 0 && (
+        {canControl && !game.isHandActive && !gameOver && game.roundNumber === 0 && game.pot === 0 && (
           <View style={styles.dealSection}>
             <TouchableOpacity style={styles.dealBtn} onPress={dealNewHand}>
               <Text style={styles.dealBtnText}>Deal First Hand 🃏</Text>
@@ -300,7 +305,7 @@ export default function GameScreen() {
           </View>
         )}
 
-        {isHandDone && !gameOver && game.roundNumber >= 1 && (
+        {canControl && isHandDone && !gameOver && game.roundNumber >= 1 && (
           <View style={styles.dealSection}>
             <TouchableOpacity style={styles.dealBtn} onPress={handleNewHand}>
               <Text style={styles.dealBtnText}>Deal Next Hand →</Text>
@@ -308,9 +313,9 @@ export default function GameScreen() {
           </View>
         )}
 
-        {isShowdown && (
+        {canControl && isShowdown && (
           <View style={styles.showdownSection}>
-            <Text style={styles.showdownText}>Tap winner seat(s), then confirm</Text>
+            <Text style={styles.showdownText}>Award {formatChips(game.sidePots[0]?.amount || 0)} chips. Select eligible winner(s): {game.players.filter(p => game.sidePots[0]?.eligiblePlayerIds.includes(p.id)).map(p => p.name).join(', ')}. {game.sidePots.length > 1 ? `${game.sidePots.length} pots remaining.` : ''}</Text>
             <TouchableOpacity style={[styles.confirmBtn, selectedWinners.length === 0 && styles.confirmBtnDisabled]} onPress={confirmWinners}>
               <Text style={styles.confirmBtnText}>{selectedWinners.length <= 1 ? 'Award Pot' : `Split Pot (${selectedWinners.length})`}</Text>
             </TouchableOpacity>
@@ -359,7 +364,7 @@ export default function GameScreen() {
         <View style={{ height: 130 }} />
       </ScrollView>
 
-      {game.isHandActive && !isShowdown && (
+      {canControl && game.isHandActive && !isShowdown && (
         <View style={styles.controlsContainer}>
           <BettingControls game={game} onAction={doAction} />
         </View>
@@ -369,10 +374,10 @@ export default function GameScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
           <View style={styles.menuPanel}>
             <Text style={styles.menuTitle}>Game Menu</Text>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); setShowAdmin(true); }}>
+            <TouchableOpacity disabled={!canControl} style={[styles.menuItem, !canControl && styles.menuItemDisabled]} onPress={() => { setShowMenu(false); setShowAdmin(true); }}>
               <Text style={styles.menuItemText}>Admin Tools</Text>
             </TouchableOpacity>
-            {hasDecisionTimer && (
+            {canControl && hasDecisionTimer && (
               <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); toggleTimerPaused(); }}>
                 <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
               </TouchableOpacity>
@@ -432,7 +437,7 @@ export default function GameScreen() {
               <Text style={styles.menuItemText}>Add Player</Text>
             </TouchableOpacity>
 
-            <Text style={styles.adminLabel}>Correct chip stack</Text>
+            <Text style={styles.adminLabel}>Correct chip stack (between hands only)</Text>
             {game.players.map(player => (
               <TouchableOpacity
                 key={player.id}
@@ -462,7 +467,7 @@ export default function GameScreen() {
               </>
             )}
 
-            {hasDecisionTimer && (
+            {canControl && hasDecisionTimer && (
               <TouchableOpacity style={styles.menuItem} onPress={() => toggleTimerPaused()}>
                 <Text style={styles.menuItemText}>{timerPaused ? 'Resume Timer' : 'Pause Timer'}</Text>
               </TouchableOpacity>
@@ -487,7 +492,7 @@ function Badge({ label, color, textColor }: { label: string; color: string; text
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: COLORS.background, width: '100%', maxWidth: 860, alignSelf: 'center' },
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: COLORS.textSecondary, fontSize: FONT_SIZES.lg, marginBottom: SPACING.lg },
@@ -655,6 +660,7 @@ const styles = StyleSheet.create({
   chatInputRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
   chatInput: {
     flex: 1,
+    width: '100%', maxWidth: 860, alignSelf: 'center',
     backgroundColor: COLORS.background,
     borderColor: COLORS.surfaceHighlight,
     borderWidth: 1,

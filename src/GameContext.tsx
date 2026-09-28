@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import { ChatMessage, GameMode, GameSettings, GameState, DEFAULT_SETTINGS, RoomState } from './types';
 import {
   addPlayerToGame,
@@ -21,6 +22,7 @@ interface GameContextType {
   chatMessages: ChatMessage[];
   timerPaused: boolean;
   canUndo: boolean;
+  canControl: boolean;
   serverUrl: string;
   setServerUrl: (url: string) => void;
   updateSettings: (settings: Partial<GameSettings>) => void;
@@ -31,7 +33,7 @@ interface GameContextType {
     create: boolean;
   }) => Promise<{ ok: boolean; error?: string; roomCode?: string }>;
   disconnectRoom: () => void;
-  initGame: () => void;
+  initGame: (overrides?: Partial<GameSettings>) => void;
   dealNewHand: () => void;
   doAction: (action: string, amount?: number) => void;
   awardToWinners: (winnerIds: string[]) => void;
@@ -62,6 +64,24 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [pastStates, setPastStates] = useState<UndoState[]>([]);
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const applyingRemoteRef = useRef(false);
+  const canControl = mode !== 'online' || (!!room && room.hostSocketId === networkClient.getSocketId());
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('poker-chips:local:v2').then(raw => {
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved?.version !== 2 || !saved.settings || !Array.isArray(saved.history)) return;
+      createGame(saved.settings); // Validate settings before accepting stored data.
+      const stored = saved.game;
+      if (stored && (!Array.isArray(stored.players) || stored.players.length < 2 || stored.players.length > 8 || !Number.isSafeInteger(stored.pot) || stored.pot < 0 || !Number.isInteger(stored.currentPlayerIndex) || stored.currentPlayerIndex < 0 || stored.currentPlayerIndex >= stored.players.length || !Array.isArray(stored.sidePots) || !stored.players.every((p: any) => Number.isSafeInteger(p.chips) && p.chips >= 0 && Number.isSafeInteger(p.totalContribution) && p.totalContribution >= 0))) return;
+      setSettings(saved.settings); setGame(stored || null); setHistory(saved.history.filter((x: unknown) => typeof x === 'string').slice(0, 50));
+    }).catch(() => {}).finally(() => setRestored(true));
+  }, []);
+  useEffect(() => {
+    if (!restored || mode !== 'local') return;
+    AsyncStorage.setItem('poker-chips:local:v2', JSON.stringify({version:2,game,settings,history})).catch(() => {});
+  }, [restored, mode, game, settings, history]);
+
 
   const saveUndoSnapshot = useCallback((currentGame: GameState | null, currentHistory: string[]) => {
     setPastStates(prev => [{
@@ -77,15 +97,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
       settings: nextSettings,
       history: nextHistory,
     });
-  }, [mode, room]);
+  }, [mode, room, canControl]);
 
   const updateSettings = useCallback((partial: Partial<GameSettings>) => {
+    if (!canControl) return;
     setSettings(prev => {
       const next = { ...prev, ...partial };
       pushOnlineState(game, next, history);
       return next;
     });
-  }, [game, history, pushOnlineState]);
+  }, [game, history, pushOnlineState, canControl]);
 
   const connectToRoom = useCallback(async (
     params: { playerName: string; roomCode?: string; create: boolean }
@@ -142,6 +163,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         playerName,
         serverUrl,
         mode: 'online',
+        hostSocketId: response.snapshot.hostSocketId || null,
         connectedUsers: response.snapshot.users || [],
         timerPaused: !!response.snapshot.timerPaused,
       });
@@ -156,6 +178,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       networkClient.onRoomUpdate(snapshot => {
         setRoom(prev => prev ? {
           ...prev,
+          hostSocketId: snapshot.hostSocketId || null,
           connectedUsers: snapshot.users || [],
           timerPaused: !!snapshot.timerPaused,
         } : prev);
@@ -186,24 +209,29 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const disconnectRoom = useCallback(() => {
     networkClient.offAll();
     networkClient.disconnect();
+    if (mode === 'online') { setGame(null); setHistory([]); setPastStates([]); }
     setMode('local');
     setRoom(null);
     setChatMessages([]);
     setTimerPaused(false);
-  }, []);
+  }, [mode]);
 
-  const initGame = useCallback(() => {
-    const newGame = createGame(settings);
+  const initGame = useCallback((overrides?: Partial<GameSettings>) => {
+    if (!canControl) return;
+    const nextSettings = { ...settings, ...overrides };
+    const newGame = createGame(nextSettings);
+    setSettings(nextSettings);
     saveUndoSnapshot(game, history);
     setGame(newGame);
-    const nextHistory = [`[pre-flop] Game started with ${settings.playerNames.length} players`];
+    const nextHistory = [`[pre-flop] Game started with ${nextSettings.playerNames.length} players`];
     setHistory(nextHistory);
     setPastStates([]);
     setTimerPaused(false);
-    pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+    pushOnlineState(newGame, nextSettings, nextHistory);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const dealNewHand = useCallback(() => {
+    if (!canControl) return;
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = startNewHand(game);
@@ -213,13 +241,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setHistory(nextHistory);
     setTimerPaused(false);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const doAction = useCallback((action: string, amount?: number) => {
+    if (!canControl) return;
     if (!game) return;
     saveUndoSnapshot(game, history);
     const player = game.players[game.currentPlayerIndex];
     const newGame = performAction(game, action, amount);
+    if (newGame === game) return;
     const playerAfterAction = newGame.players.find(p => p.id === player.id);
 
     let msg = `[${game.round}] ${player.name}: ${action}`;
@@ -240,12 +270,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const awardToWinners = useCallback((winnerIds: string[]) => {
+    if (!canControl) return;
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = awardPot(game, winnerIds);
+    if (newGame === game) return;
     const names = winnerIds
       .map(id => newGame.players.find(p => p.id === id)?.name)
       .filter(Boolean)
@@ -256,27 +288,31 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setHistory(nextHistory);
     setTimerPaused(false);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const nextDealer = useCallback(() => {
+    if (!canControl) return;
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = advanceDealer(game);
     setGame(newGame);
     pushOnlineState(newGame, settings, history);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const addPlayerMidgame = useCallback((name: string, chips: number) => {
+    if (!canControl) return;
     if (!game) return;
     saveUndoSnapshot(game, history);
     const newGame = addPlayerToGame(game, name, chips);
+    if (newGame === game) return;
     const nextHistory = [`[${newGame.round}] Added player ${name} (${chips} chips)`, ...history].slice(0, 50);
     setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const updatePlayerChips = useCallback((playerId: string, chips: number) => {
+    if (!canControl) return;
     if (!game) return;
     const player = game.players.find(p => p.id === playerId);
     if (!player) return;
@@ -284,22 +320,25 @@ export function GameProvider({ children }: { children: ReactNode }) {
     saveUndoSnapshot(game, history);
     const safeChips = Math.max(0, Math.floor(chips));
     const newGame = editPlayerChips(game, playerId, safeChips);
+    if (newGame === game) return;
     const nextHistory = [`[${newGame.round}] Chip correction: ${player.name} -> ${safeChips}`, ...history].slice(0, 50);
     setGame(newGame);
     setHistory(nextHistory);
     pushOnlineState(newGame, settings, nextHistory);
-  }, [game, history, pushOnlineState, saveUndoSnapshot, settings]);
+  }, [game, history, pushOnlineState, saveUndoSnapshot, settings, canControl]);
 
   const undoLastAction = useCallback(() => {
+    if (!canControl) return;
     if (pastStates.length === 0) return;
     const [latest, ...rest] = pastStates;
     setPastStates(rest);
     setGame(latest.game);
     setHistory(latest.history);
     pushOnlineState(latest.game, settings, latest.history);
-  }, [pastStates, pushOnlineState, settings]);
+  }, [pastStates, pushOnlineState, settings, canControl]);
 
   const toggleTimerPaused = useCallback((paused?: boolean) => {
+    if (!canControl) return;
     if (settings.decisionTimerSeconds <= 0) return;
     const nextPaused = typeof paused === 'boolean' ? paused : !timerPaused;
     setTimerPaused(nextPaused);
@@ -307,7 +346,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (mode === 'online' && room) {
       networkClient.setTimerPaused(room.roomCode, nextPaused);
     }
-  }, [mode, room, settings.decisionTimerSeconds, timerPaused]);
+  }, [mode, room, settings.decisionTimerSeconds, timerPaused, canControl]);
 
   const sendChatMessage = useCallback((text: string) => {
     const messageText = text.trim();
@@ -315,16 +354,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     if (mode !== 'online' || !room) return;
     networkClient.sendChat(room.roomCode, room.playerName, messageText);
-  }, [mode, room]);
+  }, [mode, room, canControl]);
 
   const resetGame = useCallback(() => {
+    if (!canControl) return;
     setGame(null);
     setHistory([]);
     setPastStates([]);
     setChatMessages([]);
     setTimerPaused(false);
     pushOnlineState(null, settings, []);
-  }, [pushOnlineState, settings]);
+  }, [pushOnlineState, settings, canControl]);
 
   return (
     <GameContext.Provider
@@ -336,7 +376,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
         history,
         chatMessages,
         timerPaused,
-        canUndo: pastStates.length > 0,
+        canControl,
+        canUndo: canControl && pastStates.length > 0,
         serverUrl,
         setServerUrl,
         updateSettings,

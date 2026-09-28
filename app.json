@@ -4,7 +4,6 @@
     "slug": "poker-chips",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "pokerchips",
     "splash": {
@@ -23,6 +22,10 @@
     "plugins": [
       "expo-router",
       "expo-asset"
-    ]
+    ],
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    }
   }
 }
